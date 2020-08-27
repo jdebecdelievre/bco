@@ -1,0 +1,64 @@
+{
+    "model_restart": null,
+    "filename_suffix": "",
+    
+    "model_type": "sqJ_classifier_w_derivative",
+
+    "model":{
+        "hidden_layers": [8,8,8],
+        "activation": "groupsort1",
+        "linear": {
+            "type": "bjorck",
+            "safe_scaling": true,
+            "bjorck_beta": 0.5,
+            "bjorck_iter": 20,
+            "bjorck_order": 1,
+            "bias": true
+        },
+        "per_epoch_proj": {
+          "turned_on": false,
+          "bjorck_beta": 0.5,
+          "bjorck_iter": 20,
+          "bjorck_order": 1,
+          "safe_scaling": true,
+          "reset_optimizer": false
+        },
+    
+        "per_update_proj": {
+          "turned_on": false,
+          "bjorck_beta": 0.5,
+          "bjorck_iter": 12,
+          "bjorck_order": 1,
+          "safe_scaling": true
+        }
+    },
+    
+    "optim": {
+      "optimizer": "adam",
+      "lr_scheduler": {
+        "name": "plateau",
+        "patience":20,
+        "factor":0.3
+      },
+      "momentum": 0.9,
+      "weight_decay": 0.0,
+      "max_grad_norm": 1000,
+      "step_size": 0.005,
+      "batch_size": 50
+    },
+    "epochs": 50000,
+    "SWA": false,
+
+    "grad_norm_regularizer": 1e-2, 
+
+    "early_stopping":null,
+    
+    "seed": null,
+
+    "filename": "data/ballhd_50/ballhd_2d_n0.csv",
+    "test_filename": "data/ballhd_50/test_ballhd_2d.csv",
+    "input_regex": "^x\\d+$",
+    "augment": false,
+    "normalize_input":false,
+    "normalize_output":false
+  }
