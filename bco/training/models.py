@@ -107,6 +107,9 @@ class sqJModel(nn.Module):
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
         self.output_std = nn.Parameter(torch.ones(1) ,requires_grad=False)
 
+        self.MaxGradNorm = -1.
+        self.MinGradNorm = 1e10
+
     def normalize(self, input=None, output=None, deriv=None):
         assert sum([int(i is not None) for i in [input, output, deriv]]) == 1, "Only one tensor can be normalized by the method"
         if input is not None:
@@ -324,6 +327,20 @@ class sqJModel(nn.Module):
                             safe_scaling = self.params[f'per_{stage}_proj']["safe_scaling"]
                         )
 
+    def logg_gradient_norm(self, logger, epoch=-1):
+        # Only specify an epoch if logging
+        if epoch == -1:
+            for il, layer in enumerate(self._net):
+                if hasattr(layer, 'weight'):
+                    ng = layer.weight.grad.norm()
+                    self.MaxGradNorm = max([self.MaxGradNorm, ng])
+                    self.MinGradNorm = min([self.MinGradNorm, ng])
+        else:
+            logger.add_scalar(f'layers/MaxGrad', self.MaxGradNorm, epoch)
+            logger.add_scalar(f'layers/MinGrad', self.MinGradNorm, epoch)
+            self.MaxGradNorm = -1.
+            self.MinGradNorm = 1e10
+
     # def log_sing(self, logger):
     #     t0 = time()
     #     with torch.no_grad():
@@ -371,6 +388,8 @@ class OrthonormalCertificates(sqJModel):
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
         self.output_std = nn.Parameter(torch.ones(1) ,requires_grad=False)
+        self.MaxGradNorm = -1.
+        self.MinGradNorm = 1e10
 
 
 class xStarModel(sqJModel):
@@ -385,6 +404,8 @@ class xStarModel(sqJModel):
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']), requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(model_params['input_size']), requires_grad=False)
         self.output_std = nn.Parameter(torch.ones(model_params['input_size']), requires_grad=False)
+        self.MaxGradNorm = -1.
+        self.MinGradNorm = 1e10
 
     def forward(self, input):
         _input = self.normalize(input=input)

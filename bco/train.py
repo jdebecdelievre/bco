@@ -14,6 +14,8 @@ import pdb
 from tqdm import tqdm
 from collections import defaultdict
 
+from ray import tune
+
 from bco.training.models import build_model, scalarize
 from bco.training.datasets import build_dataset
 from bco.training.losses import loss_calc
@@ -55,7 +57,7 @@ def process_params(params):
 
     return params
 
-def train(params={}):
+def train(params={}, tune_search=False):
     # Process params
     params = process_params(params)
 
@@ -90,6 +92,9 @@ def train(params={}):
     # Prepare tensorboard logging
     test_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
     train_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
+    if tune_search:
+        test_writer.close()
+        train_writer.close()
     basename = os.path.basename(test_writer.log_dir[:-5])
     print('Training', basename)
 
@@ -107,7 +112,6 @@ def train(params={}):
     print(json.dumps(params, indent=4, sort_keys=True))
     for e in tqdm(range(params["epochs"])):
         L = defaultdict(float)
-        ite = 0
 
         B = dataset.get_batches(shuffle=True)
         for i, o, do, cl in B:
@@ -121,9 +125,11 @@ def train(params={}):
                 for l in loss_dict:
                     L[l] += loss_dict[l].data
                 L['loss'] += loss.data
-                ite += i.shape[0]
 
-            model.projection('update')
+                model.logg_gradient_norm(train_writer)
+                model.projection('update')
+
+        model.logg_gradient_norm(train_writer, epoch=e)
         model.projection('epoch')
 
         if e%50 ==0:
@@ -131,23 +137,26 @@ def train(params={}):
             model.eval()
             with torch.no_grad():
                 # params.update(model.metrics(i, o, cl, train_writer, e, 'train_'))
-                train_writer.add_scalar('loss/loss', L['loss']/ite, e)
+                train_writer.add_scalar('loss/loss', L['loss'], e)
                 for l in L:
-                    train_writer.add_scalar('loss/'+l, L[l]/ite, e)
+                    train_writer.add_scalar('loss/'+l, L[l], e)
             model.train()
 
         if e%100 == 0:
             # Write loss to params
-            params['loss'] = scalarize(L['loss']/ite)
+            logs = {}
+            logs['loss'] = scalarize(L['loss'])
             for l in L:
-                params['loss_'+l] = scalarize(L[l]/ite)
+                logs['loss_'+l] = scalarize(L[l])
 
             # Save test metrics
             model.eval()
             with torch.no_grad():
                 test_input, test_output, _, test_classes = test_dataset.tensors
-                params.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
-
+                logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
+            if tune_search:
+                tune.track.log(**logs)
+            params.update(logs)
             # Log matrix eigenvalues
             # if not model.params['per_update_proj']['turned_on'] and not model.params['per_epoch_proj']['turned_on']:
             #     model.log_sing(train_writer)
@@ -157,13 +166,15 @@ def train(params={}):
             opt_file_name = model_file_name[:-4]+'.opt'
             torch.save(model.state_dict(), model_file_name)
             torch.save(opt.state_dict(), opt_file_name)
-            with open(model_file_name[:-4]+'.json', "w") as f:
-                json.dump(params, f, indent=4)
+            if not tune_search:
+                with open(model_file_name[:-4]+'.json', "w") as f:
+                    json.dump(params, f, indent=4)
 
             # LR scheduler
             if scheduler is not None:
                 scheduler.step(loss)
                 LR = torch.tensor([group['lr'] for group in opt.param_groups]).mean()
+                train_writer.add_scalar('learning_rate', LR, e)
                 if LR< 1e-7:
                     print(f'Stopping Criterion reached at epoch {e}: lr = {LR}')
                     break

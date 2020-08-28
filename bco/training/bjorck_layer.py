@@ -32,8 +32,8 @@ class BjorckLinear(torch.nn.Linear):
 
     def forward(self, x):
         ortho_w = self.orthonormalize()
-        # if torch.isnan(ortho_w).any():
-        #     import ipdb; ipdb.set_trace()
+        if torch.isnan(ortho_w).any():
+            import ipdb; ipdb.set_trace()
         return F.linear(x, ortho_w, self.bias)
 
     def orthonormalize(self, safe_scaling=None, bjorck_beta=None, bjorck_iter=None, bjorck_order=None):
@@ -51,7 +51,7 @@ class BjorckLinear(torch.nn.Linear):
         return bjorck_orthonormalize(self.weight.t() / scaling,
                                         beta =  bjorck_beta,
                                         iters = bjorck_iter,
-                                        order = bjorck_order).t()
+                                        order = bjorck_order).t() * scaling
 
 
     def project_weights(self, safe_scaling, bjorck_beta, bjorck_iter, bjorck_order):

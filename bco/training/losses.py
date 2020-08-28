@@ -14,8 +14,8 @@ import time
 
 
 def parse_coefs(params, device='cpu'):
-    if params['model_type'] == 'sqJ_classifier_w_derivative':
-        return {'gradient norm': torch.tensor(params['grad_norm_regularizer'], device=device)}
+    if params['model_type'] in ['sqJ_classifier_w_derivative', 'sqJ_orth_cert']:
+        return {'gradient norm': torch.tensor(params['grad_norm_regularizer'], device=device)}    
     else:
         return {}
 
@@ -64,13 +64,16 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
         _o_ = model._net(_i)
         _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
         _i.requires_grad = False
-        # loss = (((_o - _o_).abs() + (_do - _do_).abs().sum(1, keepdim=True)).T @ (1 - cl) +  F.relu(_o_).T @ cl)
-        # loss = ((_o - _o_).abs() + (_do - _do_).abs().sum(1, keepdim=True)).T @ (1 - torch.abs(cl)) +  \
-        #         F.relu(_o_ * cl).T @ torch.abs(cl)
-        jpred = (_o - _o_).abs().T @ (1 - torch.abs(cl))
-        djpred = (_do - _do_).abs().sum(1, keepdim=True).T @ (1 - torch.abs(cl))
-        feasible_class = F.relu(_o_ * cl).T @ torch.abs(cl)
-        grad_norm = torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T.sum()
+
+        feasible = torch.abs(cl)
+        N_feasible = feasible.sum()
+        infeasible = (1 - torch.abs(cl))
+        N_infeasible = infeasible.sum()
+
+        jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
+        djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
+        feasible_class =  (F.relu(_o_ * cl).T @ feasible) / N_feasible * (2 * (_i.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+        grad_norm = (torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T @ feasible) / N_feasible
 
         loss_dict = {'J loss':jpred, 'dJ loss': djpred, 'classification loss': feasible_class, 'gradient norm': grad_norm}
         loss = combine_losses(loss_dict, coefs)
@@ -86,11 +89,16 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
         _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
         _i.requires_grad = False
 
-        jpred = (_o - _o_).abs().T @ (1 - torch.abs(cl))
-        djpred = (_do - _do_).abs().sum(1, keepdim=True).T @ (1 - torch.abs(cl))
-        feasible_class = F.relu(_o_ * cl).T @ torch.abs(cl)
-        grad_norm = torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T.sum()
-        certif_norm = torch.norm(certif, dim=1).sum()
+        feasible = torch.abs(cl)
+        N_feasible = feasible.sum()
+        infeasible = (1 - torch.abs(cl))
+        N_infeasible = infeasible.sum()
+
+        jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
+        djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
+        feasible_class =  (F.relu(_o_ * cl).T @ feasible) / N_feasible * (2 * (_i.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+        grad_norm = (torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T @ feasible) / N_feasible
+        certif_norm = torch.norm(certif, dim=1).mean()
 
         loss_dict = {'J loss':jpred, 
                     'dJ loss': djpred, 

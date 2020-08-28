@@ -60,5 +60,8 @@
     "input_regex": "^x\\d+$",
     "augment": false,
     "normalize_input":false,
-    "normalize_output":false
+    "normalize_output":false,
+
+    "tb_logging":true,
+    "json_logging":true
   }
