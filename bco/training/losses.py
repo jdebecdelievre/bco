@@ -74,7 +74,6 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
 
         loss_dict = {'J loss':jpred, 'dJ loss': djpred, 'classification loss': feasible_class, 'gradient norm': grad_norm}
         loss = combine_losses(loss_dict, coefs)
-        
         return loss, loss_dict
 
     elif params['model_type'] == 'sqJ_orth_cert':
@@ -83,15 +82,24 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
             _i.grad.detach_()
             _i.grad.zero_()
 
-        out = model._net_(_i)
-        _o_ = out[:, :1]
-        certif = out[:, 1:]
+        _o_, certif = model._net.value_with_uncertainty(_i)
         _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
         _i.requires_grad = False
 
-        loss_dict = {'loss': ((_o - _o_).abs() + (_do - _do_).abs().sum(1, keepdim=True)).T @ (1 - torch.abs(cl)) +  \
-                F.relu(_o_ * cl).T @ torch.abs(cl) + torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).sum()/100}
-        return combine_losses(loss_dict, coefs), loss_dict
+        jpred = (_o - _o_).abs().T @ (1 - torch.abs(cl))
+        djpred = (_do - _do_).abs().sum(1, keepdim=True).T @ (1 - torch.abs(cl))
+        feasible_class = F.relu(_o_ * cl).T @ torch.abs(cl)
+        grad_norm = torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T.sum()
+        certif_norm = torch.norm(certif, dim=1).sum()
+
+        loss_dict = {'J loss':jpred, 
+                    'dJ loss': djpred, 
+                    'classification loss': feasible_class, 
+                    'gradient norm': grad_norm,
+                    'orthonormal certificate': certif_norm}
+        loss = combine_losses(loss_dict, coefs)
+        return loss, loss_dict
+
 
     elif params['model_type'] == 'sqJ_classifier':
         _o_ = model._net(_i)

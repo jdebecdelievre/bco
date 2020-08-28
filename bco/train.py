@@ -148,6 +148,10 @@ def train(params={}):
                 test_input, test_output, _, test_classes = test_dataset.tensors
                 params.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
 
+            # Log matrix eigenvalues
+            # if not model.params['per_update_proj']['turned_on'] and not model.params['per_epoch_proj']['turned_on']:
+            #     model.log_sing(train_writer)
+
             # Save model
             model_file_name = os.path.join("models", basename + ".mdl")
             opt_file_name = model_file_name[:-4]+'.opt'

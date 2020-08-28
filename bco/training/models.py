@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 import os
 op = os.path
 import json
-import time
+from time import time
 
 from lnets.models.activations import GroupSort
 from bco.training.bjorck_layer import BjorckLinear
@@ -62,8 +62,17 @@ def vectorize_params(value, n, get_fn = lambda x:x):
         valvec = [get_fn(value)] * n
     return valvec
 
+class Norm(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.bias = nn.Parameter(torch.zeros(1), requires_grad=True)
+
+    def forward(self, input):
+        return torch.norm(input, dim=1, keepdim=True) + self.bias
+
 def build_layers(hidden_layers, activation, linear_layers, input_size, output_size):
     n = len(hidden_layers)
+    
     activation = vectorize_params(activation, n, get_activation)
     linear_layers = vectorize_params(linear_layers, n+1, get_linear)
 
@@ -77,7 +86,6 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         activation[i+1]()
         ]
     model = nn.Sequential(*layers, linear_layers[i](hidden_layers[-1], output_size))
-
     print(model)
     return model
 
@@ -260,7 +268,8 @@ class sqJModel(nn.Module):
         writer : tensorboard.SummaryWriter, optional
             Writer to log scalar metrics, by default None
         e : int, optional
-            epoch to log on writer, by default None
+            epoch to log on write
+            r, by default None
         prefix : str, optional
             prefix to metrics logging, by default ''
 
@@ -278,7 +287,7 @@ class sqJModel(nn.Module):
         metrics[prefix + 'Jrmse'] = scalarize(Jrmse)
         if writer is not None:
             assert e is not None, "Provide epoch number"
-            writer.add_scalar(prefix + 'Jrmse', Jrmse, e)
+            writer.add_scalar('Jrmse', Jrmse, e)
         return metrics
 
     
@@ -302,19 +311,29 @@ class sqJModel(nn.Module):
                 _x = layer(_x)
         return _x
 
-    def projection(self, time):
+    def projection(self, stage):
         # time = 'epoch' or 'update'
         with torch.no_grad():
-            if self.params[f'per_{time}_proj']['turned_on']:
+            if self.params[f'per_{stage}_proj']['turned_on']:
                 for layer in (self._net):
                     if type(layer) == BjorckLinear and hasattr(layer, 'weight'):
                         layer.project_weights(
-                            bjorck_beta  = self.params[f'per_{time}_proj']["bjorck_beta"],
-                            bjorck_iter  = self.params[f'per_{time}_proj']["bjorck_iter"],
-                            bjorck_order = self.params[f'per_{time}_proj']["bjorck_order"],
-                            safe_scaling = self.params[f'per_{time}_proj']["safe_scaling"]
+                            bjorck_beta  = self.params[f'per_{stage}_proj']["bjorck_beta"],
+                            bjorck_iter  = self.params[f'per_{stage}_proj']["bjorck_iter"],
+                            bjorck_order = self.params[f'per_{stage}_proj']["bjorck_order"],
+                            safe_scaling = self.params[f'per_{stage}_proj']["safe_scaling"]
                         )
 
+    # def log_sing(self, logger):
+    #     t0 = time()
+    #     with torch.no_grad():
+    #         for il, layer in enumerate(self._net):
+    #             WtW = layer.weight.T @ layer.weight
+    #             largest = torch.lobpcg(WtW, k=1, largest=True)
+    #             smallest = torch.lobpcg(WtW, k=1, largest=False)
+    #             logger.add_scalar(f'layers/largest_{il}', largest)
+    #             logger.add_scalar(f'layers/smallest_{il}', smallest)
+    #     logger.add_scalar('layers/singular values logging time', time() - t0)
 
 class CompoundModel(torch.nn.Module):
     def __init__(self, models):
@@ -324,34 +343,34 @@ class CompoundModel(torch.nn.Module):
     def forward(self, input):
         return torch.max(torch.cat([m.forward(input) for m in self.models], dim=-1), dim=-1)[0]
 
-class SubNet(torch.nn.Module):
+class SubNet(torch.nn.Sequential):
     def __init__(self, net):
-        super().__init__()
-        self.net = net
+        super().__init__(*net)
 
     def forward(self, input):
-        return self.net(input)[:,:1]
+        out = super().forward(input)
+        return out[:, :1]
+
+    def certificate(self, input):
+        return super().forward(input)[:, 1:]
+    
+    def value_with_uncertainty(self, input):
+        out = super().forward(input)
+        return out[:, :1], out[:, 1:]
 
 class OrthonormalCertificates(sqJModel):
     def __init__(self, model_params):
-        super().__init__()
+        super(sqJModel, self).__init__()
         self.params = model_params
-        self._net_ = build_layers(
-            model_params['hidden_layers'], 
-            model_params['activation'],
-            model_params['linear'], 
-            model_params['input_size'], 1)
-        self._net  = SubNet(self._net_)
+        self._net  = SubNet(build_layers(
+                        model_params['hidden_layers'], 
+                        model_params['activation'],
+                        model_params['linear'], 
+                        model_params['input_size'], model_params['hidden_layers'][-1]))
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
         self.output_std = nn.Parameter(torch.ones(1) ,requires_grad=False)
-
-    def certificate(self, input):
-        return self._net(input)[1:]
-    
-    # def __iter__(self) -> Iterator[torch.nn.Module]:
-    #     return self.net.__iter__()
 
 
 class xStarModel(sqJModel):

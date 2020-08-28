@@ -4,7 +4,7 @@
 
 
 import torch.nn.functional as F
-import torch
+import torch 
 import numpy as np
 
 
@@ -22,7 +22,7 @@ class BjorckLinear(torch.nn.Linear):
         self.bjorck_iter = bjorck_iter
         self.bjorck_order = bjorck_order
         self.safe_scaling = safe_scaling
-        super(BjorckLinear, self).__init__(in_features, out_features)
+        super(BjorckLinear, self).__init__(in_features, out_features, bias=bias)
 
     def reset_parameters(self):
         stdv = 1. / np.sqrt(self.weight.size(1))
@@ -32,6 +32,8 @@ class BjorckLinear(torch.nn.Linear):
 
     def forward(self, x):
         ortho_w = self.orthonormalize()
+        # if torch.isnan(ortho_w).any():
+        #     import ipdb; ipdb.set_trace()
         return F.linear(x, ortho_w, self.bias)
 
     def orthonormalize(self, safe_scaling=None, bjorck_beta=None, bjorck_iter=None, bjorck_order=None):
