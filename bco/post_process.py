@@ -125,6 +125,27 @@ def compute_Jloss(filename, content, plot_contours=True):
         sl = 0. if 'tol_opt' not in content else content['tol_opt']
         f = score_contours(model, dataset, single_level=sl, save=filename + 'decision_boundary')
         plt.close()
+
+    if content['model_type'] == 'sqJ_orth_cert':
+        x1, x2 = torch.meshgrid(torch.linspace(-2,2), torch.linspace(-2,2))
+        X = torch.stack((x1.flatten(), x2.flatten())).T
+        with torch.no_grad():
+            Y = model._net.certificate(X)
+            Y = Y.norm(dim=1)
+            Y = Y.reshape(x1.shape)
+        f, a = plt.subplots(figsize=(5,4))
+        c = a.contourf(x1, x2, (Y), levels=30)
+        a.axis('equal')
+        inp, out, _, cls = dataset.tensors
+        a.scatter(inp[:,0], inp[:,1], s=10., c=-cls[:,0], marker='+')
+        try:
+            co = f.colorbar(c, ax=a)
+            co.set_label('$UQ$', rotation=90)
+        except:
+            pass
+        a.spines['top'].set_visible(False)
+        a.spines['right'].set_visible(False)
+        f.savefig(filename + 'UQ.pdf', bbox_inches='tight')
     return content, False
 
 

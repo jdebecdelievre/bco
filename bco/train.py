@@ -25,6 +25,7 @@ from bco.training.optimizers import get_optimizer
 # Experimental
 from bco.training.early_stopping import EarlyStopping
 
+import argparse
 
 def process_params(params):
     # Fill params
@@ -119,7 +120,7 @@ def train(params={}):
             with torch.no_grad():
                 for l in loss_dict:
                     L[l] += loss_dict[l].data
-                L['loss'] = loss.data
+                L['loss'] += loss.data
                 ite += i.shape[0]
 
             model.projection('update')
@@ -195,7 +196,15 @@ def update_default_dict(params):
     return unflatten(default_params)
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument("-p", "--params_file", type=str, default='params.json')
+parser.add_argument("-fs", "--filename_suffix", type=str, default=None)
+
 if __name__ == "__main__":
-    with open('params.json', 'r') as f:
+    args = parser.parse_args() 
+    with open(args.params_file, 'r') as f:
         params = json.load(f)
+    if args.filename_suffix:
+        params['filename_suffix'] = args.filename_suffix
+
     train(params)
