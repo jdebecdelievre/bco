@@ -168,8 +168,7 @@ def train(params={}, tune_search=False):
                 test_input, test_output, _, test_classes = test_dataset.tensors
                 logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
             if tune_search:
-                pass
-                # tune.report(**logs)
+                tune.report(**logs)
             params.update(logs)
             # Log matrix eigenvalues
             # if not model.params['per_update_proj']['turned_on'] and not model.params['per_epoch_proj']['turned_on']:
