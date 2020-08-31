@@ -1,17 +1,17 @@
 {
     "model_restart": null,
-    "filename_suffix": "",
+    "filename_suffix": "twins",
     
     "model_type": "sqJ_classifier_w_derivative",
-
+  
     "model":{
         "hidden_layers": [8,8,8],
         "activation": "groupsort1",
         "linear": {
             "type": "bjorck",
-            "safe_scaling": true,
+            "safe_scaling": false,
             "bjorck_beta": 0.5,
-            "bjorck_iter": 20,
+            "bjorck_iter": 15,
             "bjorck_order": 1,
             "bias": true
         },
@@ -32,7 +32,7 @@
           "safe_scaling": true
         }
     },
-    
+  
     "optim": {
       "optimizer": "adam",
       "lr_scheduler": {
@@ -42,28 +42,21 @@
       },
       "momentum": 0.9,
       "weight_decay": 0.0,
-      "max_grad_norm": 1000,
+      "max_grad_norm": 10000,
       "step_size": 0.005,
       "batch_size": 50
     },
-    "epochs": 50000,
-    "SWA": false,
-
-    "grad_norm_regularizer": 1e-2, 
-
+  
+    "grad_norm_regularizer": 1.0, 
+  
     "early_stopping":null,
     
     "seed": null,
-
-    "filename": "data/ballhd_50/ballhd_2d_n0.csv",
-    "test_filename": "data/ballhd_50/test_ballhd_2d.csv",
+  
+    "filename": "data/twins/twins_50_n1.csv",
+    "test_filename": "data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
     "augment": false,
     "normalize_input":false,
-    "normalize_output":false,
-
-    "logging":{
-      "test":100,
-      "train":50
-      }
+    "normalize_output":false
   }

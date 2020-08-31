@@ -116,6 +116,7 @@ def train(params={}, tune_search=False):
     # Train
     model.train()
     f1_score = -5
+    stop_here = False
     if tune_search:
         iterator = range(params["epochs"])
     else:
@@ -145,7 +146,22 @@ def train(params={}, tune_search=False):
         model.logg_gradient_norm(train_writer, epoch=e)
         model.projection('epoch')
 
-        if e%50 ==0:
+        # LR scheduler
+        if scheduler is not None:
+            scheduler.step(loss)
+            LR = torch.tensor([group['lr'] for group in opt.param_groups]).mean()
+            train_writer.add_scalar('learning_rate', LR, e)
+            if LR< 1e-7:
+                print(f'Stopping Criterion reached at epoch {e}: lr = {LR}')
+                stop_here = True
+
+        # Stopping criterion
+        f1_score = params['test_f1'] if not np.isnan(params['test_f1']) else 0
+        if params['early_stopping'] is not None and (stop.step(torch.tensor(params['test_Jrmse']))):
+            stop_here = True
+
+
+        if e%params['logging']['train'] ==0 or stop_here:
             # Log train metrics
             model.eval()
             with torch.no_grad():
@@ -155,7 +171,7 @@ def train(params={}, tune_search=False):
                     train_writer.add_scalar('loss/'+l, L[l], e)
             model.train()
 
-        if e%100 == 0:
+        if e%params['logging']['test'] == 0 or stop_here:
             # Write loss to params
             logs = {}
             logs['loss'] = scalarize(L['loss'])
@@ -168,8 +184,7 @@ def train(params={}, tune_search=False):
                 test_input, test_output, _, test_classes = test_dataset.tensors
                 logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
             if tune_search:
-                pass
-                # tune.report(**logs)
+                tune.report(**logs)
             params.update(logs)
             # Log matrix eigenvalues
             # if not model.params['per_update_proj']['turned_on'] and not model.params['per_epoch_proj']['turned_on']:
@@ -183,29 +198,19 @@ def train(params={}, tune_search=False):
             if not tune_search:
                 with open(model_file_name[:-4]+'.json', "w") as f:
                     json.dump(params, f, indent=4)
-
-            # LR scheduler
-            if scheduler is not None:
-                scheduler.step(loss)
-                LR = torch.tensor([group['lr'] for group in opt.param_groups]).mean()
-                train_writer.add_scalar('learning_rate', LR, e)
-                if LR< 1e-7:
-                    print(f'Stopping Criterion reached at epoch {e}: lr = {LR}')
-                    break
-
-            # Stopping criterion
-            f1_score = params['test_f1'] if not np.isnan(params['test_f1']) else 0
-            if params['early_stopping'] is not None and (stop.step(torch.tensor(params['test_Jrmse']))):
-                break
                 
+
             model.train()
-            
+
+        if stop_here:
+            break            
             
     if params['SWA']:
         opt.swap_swa_sgd()
 
     if not tune_search:
         print(params)
+
     return params, model_file_name
 
 
