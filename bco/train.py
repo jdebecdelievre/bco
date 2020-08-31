@@ -29,6 +29,13 @@ from bco.training.early_stopping import EarlyStopping
 
 import argparse
 
+class DummyWriter(SummaryWriter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.close()
+    def add_scalar(*args, **kwargs):
+        pass
+
 def process_params(params):
     # Fill params
     params = update_default_dict(params)
@@ -90,13 +97,13 @@ def train(params={}, tune_search=False):
         opt.load_state_dict(torch.load(op.join("models", params['model_restart'] + ".opt")))
     
     # Prepare tensorboard logging
-    test_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
-    train_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
     if tune_search:
-        test_writer.close()
-        train_writer.close()
+        test_writer = DummyWriter(comment=("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
+        train_writer = DummyWriter(comment=("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
+    else:
+        test_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
+        train_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
     basename = os.path.basename(test_writer.log_dir[:-5])
-    print('Training', basename)
 
     # Set up early stopping
     if params['early_stopping'] is not None:
@@ -109,8 +116,14 @@ def train(params={}, tune_search=False):
     # Train
     model.train()
     f1_score = -5
-    print(json.dumps(params, indent=4, sort_keys=True))
-    for e in tqdm(range(params["epochs"])):
+    if tune_search:
+        iterator = range(params["epochs"])
+    else:
+        print('Training', basename)
+        print(json.dumps(params, indent=4, sort_keys=True))
+        print(model)
+        iterator = tqdm(range(params["epochs"]))
+    for e in iterator:
         L = defaultdict(float)
 
         B = dataset.get_batches(shuffle=True)
@@ -155,7 +168,8 @@ def train(params={}, tune_search=False):
                 test_input, test_output, _, test_classes = test_dataset.tensors
                 logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
             if tune_search:
-                tune.track.log(**logs)
+                pass
+                # tune.report(**logs)
             params.update(logs)
             # Log matrix eigenvalues
             # if not model.params['per_update_proj']['turned_on'] and not model.params['per_epoch_proj']['turned_on']:
@@ -190,7 +204,8 @@ def train(params={}, tune_search=False):
     if params['SWA']:
         opt.swap_swa_sgd()
 
-    print(params)
+    if not tune_search:
+        print(params)
     return params, model_file_name
 
 

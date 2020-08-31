@@ -86,7 +86,6 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         activation[i+1]()
         ]
     model = nn.Sequential(*layers, linear_layers[i](hidden_layers[-1], output_size))
-    print(model)
     return model
 
 
