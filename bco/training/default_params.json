@@ -5,6 +5,7 @@
     "model_type": "sqJ_classifier_w_derivative",
 
     "model":{
+      "rbf": 1,
         "hidden_layers": [8,8,8],
         "activation": "groupsort1",
         "linear": {

@@ -5,6 +5,7 @@
   "model_type": "sqJ_classifier_w_derivative",
 
   "model":{
+      "rbf":3,
       "hidden_layers": [2],
       "activation": "groupsort1",
       "linear": {
@@ -46,7 +47,7 @@
     "step_size": 0.01,
     "batch_size": 50
   },
-  "epochs":20000,
+  "epochs":2,
 
   "grad_norm_regularizer": 1.0, 
 
@@ -54,8 +55,8 @@
   
   "seed": null,
 
-  "filename": "/home/adgboost/bco/data/multio_50/multio_2d_n0.csv",
-  "test_filename": "/home/adgboost/bco/data/multio_50/test_multio_2d.csv",
+  "filename": "/Users/jeandebecdelievre/Box Sync/recherche/design/co/bco/data/multio_50/multio_2d_n0.csv",
+  "test_filename": "/Users/jeandebecdelievre/Box Sync/recherche/design/co/bco/data/multio_50/test_multio_2d.csv",
   "input_regex": "^x\\d+$",
   "augment": false,
   "normalize_input":false,
@@ -64,5 +65,5 @@
   "logging":{
     "test":500,
     "train":150
-    }
+  }
 }

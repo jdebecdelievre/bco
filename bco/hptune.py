@@ -24,12 +24,13 @@ analysis = tune.run(
    multio,
     config={
         "model":{
-            "hidden_layers": tune.grid_search([[l]*n for l, n in product([2], [4,5,6,7])])
+            "hidden_layers": tune.grid_search([[l]*n for l, n in product([2], [4,5,6,7])]),
+            "rbf":  tune.grid_search([3,5,7,9,11])
+
         },
         "optim":{
             "step_size": tune.sample_from(lambda spec: np.exp(np.random.uniform(-4,-1.5) * np.log(10)))
         },
-        "rbf":  tune.grid_search([3,5,7,9,11])
     },
     num_samples=15,
     raise_on_failed_trial=False,
