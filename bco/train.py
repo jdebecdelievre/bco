@@ -156,7 +156,7 @@ def train(params={}, tune_search=False):
                 stop_here = True
 
         # Stopping criterion
-        f1_score = params['test_f1'] if not np.isnan(params['test_f1']) else 0
+        f1_score = params['test_f1'] if ('test_f1' in params and not np.isnan(params['test_f1'])) else 0
         if params['early_stopping'] is not None and (stop.step(torch.tensor(params['test_Jrmse']))):
             stop_here = True
 
@@ -211,7 +211,7 @@ def train(params={}, tune_search=False):
     if not tune_search:
         print(params)
 
-    return params, model_file_name
+    return params, model_file_name, model
 
 
 def update_default_dict(params):
@@ -223,7 +223,9 @@ def update_default_dict(params):
 
     # Check entries
     for p in params:
-        assert p in default_params, f"Invalid parameter {p}"
+        # assert p in default_params, f"Invalid parameter {p}"
+        if p not in default_params:
+            print( f"Invalid parameter {p}")
     
     # Update
     default_params.update(params)

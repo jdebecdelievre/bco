@@ -15,12 +15,17 @@ from time import time
 from lnets.models.activations import GroupSort
 from bco.training.bjorck_layer import BjorckLinear
 
+class Abs(torch.nn.Module):
+    def forward(self, input):
+        return torch.abs(input)
+
 ACTIVATIONS = {
     'relu':nn.ReLU,
     'tanh':nn.Tanh,
     'logsigmoid':nn.LogSigmoid,
     'identity':nn.Identity,
-    'groupsort':lambda :GroupSort(1)
+    'groupsort':lambda :GroupSort(1),
+    'abs': Abs
 }
 
 def get_activation(keyword):
@@ -62,15 +67,8 @@ def vectorize_params(value, n, get_fn = lambda x:x):
         valvec = [get_fn(value)] * n
     return valvec
 
-class Norm(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.bias = nn.Parameter(torch.zeros(1), requires_grad=True)
 
-    def forward(self, input):
-        return torch.norm(input, dim=1, keepdim=True) + self.bias
-
-def build_layers(hidden_layers, activation, linear_layers, input_size, output_size):
+def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, rbf):
     n = len(hidden_layers)
     
     activation = vectorize_params(activation, n, get_activation)
@@ -85,8 +83,33 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         layers += [linear_layers[i](hidden_layers[i], hidden_layers[i+1]),
         activation[i+1]()
         ]
-    model = nn.Sequential(*layers, linear_layers[i](hidden_layers[-1], output_size))
+
+    # model = nn.Sequential(*layers, linear_layers[-1](hidden_layers[-1], output_size))
+    model = nn.Sequential(*layers, RBFnet(rbf, hidden_layers[-1]))
+
     return model
+
+class DistanceModule(torch.nn.Module):
+    def __init__(self, input_size):
+        super().__init__()
+        self.center = torch.nn.Linear(input_size, input_size)
+        self.center.weight.requires_grad = False
+        self.center.weight.data = torch.eye(input_size)
+        self.offset = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
+
+    def forward(self, input):
+        return torch.norm(self.center.forward(input), p=2, dim=1, keepdim=True) - self.offset.square()
+
+class RBFnet(torch.nn.Module):
+    def __init__(self, n_centroids, input_features):
+        super().__init__()
+        assert n_centroids > 0
+        self.centroids = torch.nn.ModuleList([DistanceModule(input_features) for i in range(n_centroids)])
+
+    def forward(self, input):
+        D = torch.stack([c(input) for c in self.centroids])
+        out = torch.min(D, dim=0).values
+        return out
 
 
 def scalarize(val):
@@ -100,7 +123,8 @@ class sqJModel(nn.Module):
             model_params['hidden_layers'], 
             model_params['activation'],
             model_params['linear'], 
-            model_params['input_size'], 1)
+            model_params['input_size'], 1,
+            model_params['rbf'])
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)

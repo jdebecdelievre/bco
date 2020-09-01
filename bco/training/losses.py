@@ -66,9 +66,9 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
         _i.requires_grad = False
 
         feasible = torch.abs(cl)
-        N_feasible = feasible.sum()
+        N_feasible = np.maximum(feasible.sum(), 1)
         infeasible = (1 - torch.abs(cl))
-        N_infeasible = infeasible.sum()
+        N_infeasible = np.maximum(feasible.sum(), 1)
 
         jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
         djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
@@ -90,9 +90,9 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
         _i.requires_grad = False
 
         feasible = torch.abs(cl)
-        N_feasible = feasible.sum()
+        N_feasible = np.maximum(feasible.sum(), 1)
         infeasible = (1 - torch.abs(cl))
-        N_infeasible = infeasible.sum()
+        N_infeasible = np.maximum(feasible.sum(), 1)
 
         jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
         djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
