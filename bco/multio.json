@@ -47,7 +47,7 @@
     "step_size": 0.01,
     "batch_size": 50
   },
-  "epochs":2,
+  "epochs":20000,
 
   "grad_norm_regularizer": 1.0, 
 
@@ -55,8 +55,8 @@
   
   "seed": null,
 
-  "filename": "/Users/jeandebecdelievre/Box Sync/recherche/design/co/bco/data/multio_50/multio_2d_n0.csv",
-  "test_filename": "/Users/jeandebecdelievre/Box Sync/recherche/design/co/bco/data/multio_50/test_multio_2d.csv",
+  "filename": "/home/adgboost/bco/data/multio_50/multio_2d_n0.csv",
+  "test_filename": "/home/adgboost/bco/data/multio_50/test_multio_2d.csv",
   "input_regex": "^x\\d+$",
   "augment": false,
   "normalize_input":false,
