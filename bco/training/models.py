@@ -14,6 +14,8 @@ from time import time
 
 from lnets.models.activations import GroupSort
 from bco.training.bjorck_layer import BjorckLinear
+from bco.training.project_layer import ProjectLayer
+
 
 class Abs(torch.nn.Module):
     def forward(self, input):
@@ -52,8 +54,11 @@ def get_linear(options):
     elif 'bjorck' in options['type'].lower():
         opt = options.copy()
         del opt['type']
-        # return lambda inp, out: BjorckLinear_(inp, out, bias=True, config=config)
         return lambda inp, out: BjorckLinear(inp, out, **opt)
+    elif 'projector' in options['type'].lower():
+        opt = options.copy()
+        del opt['type']
+        return lambda inp, out: ProjectLayer(2, out, **opt)
     else:
         raise NotImplementedError
 
@@ -68,7 +73,8 @@ def vectorize_params(value, n, get_fn = lambda x:x):
     return valvec
 
 
-def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, rbf):
+def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, scalarize='linear'):
+    # scalarize can be 'rbf{int}' , 'linear' or None
     n = len(hidden_layers)
     
     activation = vectorize_params(activation, n, get_activation)
@@ -84,10 +90,19 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         activation[i+1]()
         ]
 
-    # model = nn.Sequential(*layers, linear_layers[-1](hidden_layers[-1], output_size))
-    model = nn.Sequential(*layers, RBFnet(rbf, hidden_layers[-1]))
+    model = nn.Sequential(*layers)
+    
+    if not scalarize:
+        return model
+        
+    if 'linear' in scalarize:
+        model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], output_size))
+    elif 'rbf' in scalarize:
+        rbf = int(scalarize.split('rbf')[-1])
+        model.add_module(str(len(model)), RBFnet(rbf, layers[-2].out_features))
 
     return model
+
 
 class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
@@ -99,6 +114,7 @@ class DistanceModule(torch.nn.Module):
 
     def forward(self, input):
         return torch.norm(self.center.forward(input), p=2, dim=1, keepdim=True) - self.offset.square()
+
 
 class RBFnet(torch.nn.Module):
     def __init__(self, n_centroids, input_features):
@@ -124,7 +140,7 @@ class sqJModel(nn.Module):
             model_params['activation'],
             model_params['linear'], 
             model_params['input_size'], 1,
-            model_params['rbf'])
+            model_params['scalarize'])
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
@@ -349,6 +365,9 @@ class sqJModel(nn.Module):
                             bjorck_order = self.params[f'per_{stage}_proj']["bjorck_order"],
                             safe_scaling = self.params[f'per_{stage}_proj']["safe_scaling"]
                         )
+                    elif type(layer) == ProjectLayer and hasattr(layer, 'weight'):
+                        layer.project_weights(
+                        )
 
     def logg_gradient_norm(self, logger, epoch=-1):
         # Only specify an epoch if logging
@@ -415,6 +434,36 @@ class OrthonormalCertificates(sqJModel):
         self.MinGradNorm = 1e10
 
 
+class ProjNet(torch.nn.Sequential):
+    def __init__(self, net):
+        super().__init__(*net)
+        self.offset = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
+    
+    # def reset_parameters(self):
+    #     super().reset_parameters()
+    #     self.offset.data.uniform_(-0.1, 0.1)
+
+    def forward(self, input):
+        out = super().forward(input)
+        return torch.norm(input - out, p=2, dim=1, keepdim=True) - self.offset
+
+class ProjectorModel(sqJModel):
+    def __init__(self, model_params):
+        super(sqJModel, self).__init__()
+        self.params = model_params
+        self._net  = ProjNet(build_layers(
+                        model_params['hidden_layers'], 
+                        model_params['activation'],
+                        model_params['linear'], 
+                        model_params['input_size'], model_params['input_size'], scalarize=None))
+        self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
+        self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
+        self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
+        self.output_std = nn.Parameter(torch.ones(1) ,requires_grad=False)
+        self.MaxGradNorm = -1.
+        self.MinGradNorm = 1e10
+
+
 class xStarModel(sqJModel):
     def __init__(self, model_params):
         super().__init__(model_params)
@@ -456,6 +505,8 @@ def build_model(params):
         return xStarModel(params['model']) 
     elif params['model_type'] == 'sqJ_orth_cert':
         return OrthonormalCertificates(params['model'])
+    elif params['model_type'] == 'projector':
+        return ProjectorModel(params['model'])
     else:
         raise NotImplementedError
 
