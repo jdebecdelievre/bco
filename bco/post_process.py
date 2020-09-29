@@ -298,7 +298,8 @@ if __name__ == "__main__":
         apply(compute_Jloss, last = args.last)
 
     # Extract pd
-    # extract_dataFrame()
+    if args.action == 'extractdf':
+        extract_dataFrame()
 
     # Create summary accuracy plot (call outside folder)
     if args.action == 'acc':

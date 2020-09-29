@@ -195,9 +195,8 @@ def train(params={}, tune_search=False):
             opt_file_name = model_file_name[:-4]+'.opt'
             torch.save(model.state_dict(), model_file_name)
             torch.save(opt.state_dict(), opt_file_name)
-            if not tune_search:
-                with open(model_file_name[:-4]+'.json', "w") as f:
-                    json.dump(params, f, indent=4)
+            with open(model_file_name[:-4]+'.json', "w") as f:
+                json.dump(params, f, indent=4)
                 
 
             model.train()
@@ -228,10 +227,10 @@ def update_default_dict(params):
             print( f"Invalid parameter {p}")
     
     # Update
-    default_params.update(params)
+    # default_params.update(params)
 
-    return unflatten(default_params)
-
+    # return unflatten(default_params)
+    return unflatten(params)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--params_file", type=str, default='params.json')
