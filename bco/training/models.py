@@ -16,10 +16,31 @@ from lnets.models.activations import GroupSort
 from bco.training.bjorck_layer import BjorckLinear
 from bco.training.project_layer import ProjectLayer
 
+from bco.training.sorting import NeuralSort, SoftSort
 
 class Abs(torch.nn.Module):
     def forward(self, input):
         return torch.abs(input)
+
+class Normalize(torch.nn.Module):
+    def forward(self, input):
+        return input / input.norm(dim=-1, keepdim=True)
+
+# Linear = torch.nn.Linear
+class Linear(torch.nn.Linear):
+    def reset_parameters(self):
+        torch.nn.init.orthogonal_(self.weight)
+        if self.bias is not None:
+            self.bias.data.uniform_(-.1, .1)
+
+class SequentialWithOptions(nn.Sequential):
+    def forward(self, input, **kwargs):
+        for module in self:
+            if type(module) == BjorckLinear and hasattr(module, 'weight'):
+                input = module(input, **kwargs)
+            else:
+                input = module(input)
+        return input
 
 ACTIVATIONS = {
     'relu':nn.ReLU,
@@ -27,7 +48,10 @@ ACTIVATIONS = {
     'logsigmoid':nn.LogSigmoid,
     'identity':nn.Identity,
     'groupsort':lambda :GroupSort(1),
-    'abs': Abs
+    'abs': Abs,
+    'normalize':Normalize,
+    'softsort':SoftSort,
+    'neuralsort':NeuralSort
 }
 
 def get_activation(keyword):
@@ -38,19 +62,19 @@ def get_activation(keyword):
     else:
         return ACTIVATIONS[keyword]
 
-from lnets.models.layers import BjorckLinear as BjorckLinear_
+# from lnets.models.layers import BjorckLinear as BjorckLinear_
 
-class DefConfig(dict):
-    def __init__(self, **kwargs):
-        for name in kwargs:
-            setattr(self, name, kwargs[name])
+# class DefConfig(dict):
+#     def __init__(self, **kwargs):
+#         for name in kwargs:
+#             setattr(self, name, kwargs[name])
 
-config = DefConfig(cuda=False, 
-        model=DefConfig(linear=DefConfig(safe_scaling=True, bjorck_beta=0.5, bjorck_iter=20, bjorck_order=1)))
+# config = DefConfig(cuda=False, 
+#         model=DefConfig(linear=DefConfig(safe_scaling=True, bjorck_beta=0.5, bjorck_iter=20, bjorck_order=1)))
 
 def get_linear(options):
     if options['type'].lower() == 'linear':
-        return torch.nn.Linear
+        return Linear#torch.nn.Linear
     elif 'bjorck' in options['type'].lower():
         opt = options.copy()
         del opt['type']
@@ -72,7 +96,6 @@ def vectorize_params(value, n, get_fn = lambda x:x):
         valvec = [get_fn(value)] * n
     return valvec
 
-
 def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, scalarize='linear'):
     # scalarize can be 'rbf{int}' , 'linear' or None
     n = len(hidden_layers)
@@ -90,7 +113,7 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         activation[i+1]()
         ]
 
-    model = nn.Sequential(*layers)
+    model = SequentialWithOptions(*layers)
     
     if not scalarize:
         return model
@@ -103,6 +126,21 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
 
     return model
 
+# class MinMaxModel(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.lin = torch.nn.ModuleList()
+#         for i in range(12):
+#             self.lin.append(torch.nn.Linear(2, 64))
+        
+#     def forward(self, input):
+#         L = torch.zeros(input.shape[0], 12)
+#         for i in range(12):
+#             L[:, i] = torch.min(self.lin[i](input), dim=1).values
+#         return torch.max(L, dim=1).values.unsqueeze(-1)
+
+# def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, scalarize='linear'):
+    # return MinMaxModel()
 
 class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
@@ -356,43 +394,36 @@ class sqJModel(nn.Module):
     def projection(self, stage):
         # time = 'epoch' or 'update'
         with torch.no_grad():
-            if self.params[f'per_{stage}_proj']['turned_on']:
-                for layer in (self._net):
-                    if type(layer) == BjorckLinear and hasattr(layer, 'weight'):
-                        layer.project_weights(
-                            bjorck_beta  = self.params[f'per_{stage}_proj']["bjorck_beta"],
-                            bjorck_iter  = self.params[f'per_{stage}_proj']["bjorck_iter"],
-                            bjorck_order = self.params[f'per_{stage}_proj']["bjorck_order"],
-                            safe_scaling = self.params[f'per_{stage}_proj']["safe_scaling"]
-                        )
-                    elif type(layer) == ProjectLayer and hasattr(layer, 'weight'):
-                        layer.project_weights(
-                        )
+            for layer in (self._net):
+                if type(layer) == BjorckLinear and hasattr(layer, 'weight'):
+                    # find params
+                    if stage == 'now':
+                        bjorck_beta = layer.bjorck_beta 
+                        bjorck_iter = layer.bjorck_iter 
+                        bjorck_order = layer.bjorck_order
+                        safe_scaling = layer.safe_scaling
+                    elif self.params[f'per_{stage}_proj']['turned_on']:
+                        bjorck_beta  = self.params[f'per_{stage}_proj']["bjorck_beta"]
+                        bjorck_iter  = self.params[f'per_{stage}_proj']["bjorck_iter"]
+                        bjorck_order = self.params[f'per_{stage}_proj']["bjorck_order"]
+                        safe_scaling = self.params[f'per_{stage}_proj']["safe_scaling"]
+                    else:
+                        continue
 
-    def logg_gradient_norm(self, logger, epoch=-1):
-        # Only specify an epoch if logging
-        if epoch == -1:
-            for il, layer in enumerate(self._net):
-                if hasattr(layer, 'weight'):
-                    ng = layer.weight.grad.norm()
-                    self.MaxGradNorm = max([self.MaxGradNorm, ng])
-                    self.MinGradNorm = min([self.MinGradNorm, ng])
-        else:
-            logger.add_scalar(f'layers/MaxGrad', self.MaxGradNorm, epoch)
-            logger.add_scalar(f'layers/MinGrad', self.MinGradNorm, epoch)
-            self.MaxGradNorm = -1.
-            self.MinGradNorm = 1e10
-
-    # def log_sing(self, logger):
-    #     t0 = time()
-    #     with torch.no_grad():
-    #         for il, layer in enumerate(self._net):
-    #             WtW = layer.weight.T @ layer.weight
-    #             largest = torch.lobpcg(WtW, k=1, largest=True)
-    #             smallest = torch.lobpcg(WtW, k=1, largest=False)
-    #             logger.add_scalar(f'layers/largest_{il}', largest)
-    #             logger.add_scalar(f'layers/smallest_{il}', smallest)
-    #     logger.add_scalar('layers/singular values logging time', time() - t0)
+                    layer.project_weights(
+                        bjorck_beta  = bjorck_beta,
+                        bjorck_iter  = bjorck_iter,
+                        bjorck_order =  bjorck_order,
+                        safe_scaling =  safe_scaling
+                    )
+                elif type(layer) == ProjectLayer and hasattr(layer, 'weight'):
+                    layer.project_weights(
+                    )
+    
+    def freeze(self):
+        for layer in (self._net):
+            if type(layer) == BjorckLinear and hasattr(layer, 'weight'):
+                layer.freeze()
 
 class CompoundModel(torch.nn.Module):
     def __init__(self, models):
@@ -499,7 +530,7 @@ def build_model(params):
     if type(params)== str:
         with open(params, 'r') as f:
             params = json.load(f)
-    if params['model_type'] in ['sqJ_classifier_w_derivative', 'sqJ_classifier', 'sqJ', 'classifier']:
+    if params['model_type'] in ['sqJ_hinge_classifier', 'sqJ_classifier_w_derivative', 'sqJ_classifier', 'sqJ', 'classifier']:
         return sqJModel(params['model'])
     elif params['model_type'] == 'xStar':
         return xStarModel(params['model']) 

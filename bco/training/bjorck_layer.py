@@ -22,18 +22,22 @@ class BjorckLinear(torch.nn.Linear):
         self.bjorck_iter = bjorck_iter
         self.bjorck_order = bjorck_order
         self.safe_scaling = safe_scaling
+        self.ortho_w = None
         super(BjorckLinear, self).__init__(in_features, out_features, bias=bias)
 
     def reset_parameters(self):
         stdv = 1. / np.sqrt(self.weight.size(1))
-        torch.nn.init.orthogonal_(self.weight, gain=stdv)
+        # torch.nn.init.orthogonal_(self.weight, gain=stdv)
+        torch.nn.init.orthogonal_(self.weight, gain=1.)
         if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
+            # self.bias.data.uniform_(-stdv, stdv)
+            self.bias.data.uniform_(-1., 1.)
 
-    def forward(self, x):
-        ortho_w = self.orthonormalize()
-        assert not torch.isnan(ortho_w).any(), "Bjorck Orthonormalization did not converge"
-        return F.linear(x, ortho_w, self.bias)
+    def forward(self, x, reuse=False):
+        if not reuse:
+            self.ortho_w = self.orthonormalize()
+        assert not torch.isnan(self.ortho_w).any(), "Bjorck Orthonormalization did not converge"
+        return F.linear(x, self.ortho_w, self.bias)
 
     def orthonormalize(self, safe_scaling=None, bjorck_beta=None, bjorck_iter=None, bjorck_order=None):
         safe_scaling = safe_scaling if safe_scaling else self.safe_scaling
@@ -56,6 +60,16 @@ class BjorckLinear(torch.nn.Linear):
     def project_weights(self, safe_scaling, bjorck_beta, bjorck_iter, bjorck_order):
         with torch.no_grad():
             self.weight.data.copy_(self.orthonormalize(safe_scaling, bjorck_beta, bjorck_iter, bjorck_order))
+
+    def freeze(self):
+        self.project_weights(self.safe_scaling, 
+                            self.bjorck_beta, 
+                            self.bjorck_iter,
+                            self.bjorck_order)
+        self.weight.requires_grad = False
+        self.bias.requires_grad = False
+        self.__class__ = torch.nn.Linear
+
 
 
 def bjorck_orthonormalize(w, beta=0.5, iters=20, order=1):

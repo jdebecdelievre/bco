@@ -5,9 +5,9 @@
   "model_type": "sqJ_classifier_w_derivative",
 
   "model":{
-      "rbf":3,
-      "hidden_layers": [2],
-      "activation": "groupsort1",
+      "scalarize":"linear",
+      "hidden_layers": [16,16,16],
+      "activation": "groupsort",
       "linear": {
           "type": "bjorck",
           "safe_scaling": true,
@@ -28,7 +28,7 @@
       "per_update_proj": {
         "turned_on": false,
         "bjorck_beta": 0.5,
-        "bjorck_iter": 12,
+        "bjorck_iter": 3,
         "bjorck_order": 1,
         "safe_scaling": true
       }
@@ -44,7 +44,7 @@
     "momentum": 0.9,
     "weight_decay": 0.0,
     "max_grad_norm": 10000,
-    "step_size": 0.01,
+    "step_size": 0.005,
     "batch_size": 50
   },
   "epochs":20000,
@@ -55,15 +55,19 @@
   
   "seed": null,
 
-  "filename": "/home/adgboost/bco/data/multio_50/multio_2d_n0.csv",
-  "test_filename": "/home/adgboost/bco/data/multio_50/test_multio_2d.csv",
+  "filename": "data/multio_50/multio_2d_n0.csv",
+  "test_filename": "data/multio_50/test_multio_2d.csv",
   "input_regex": "^x\\d+$",
   "augment": false,
   "normalize_input":false,
   "normalize_output":false,
 
   "logging":{
-    "test":500,
-    "train":150
+    "test":100,
+    "train":50
   }
+  ,
+  
+  "bounds": [[-2,-2], [2,2]],
+  "sdf_regularization_anchors":10
 }

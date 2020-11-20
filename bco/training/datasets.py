@@ -14,7 +14,10 @@ import json
 import re
 
 
-def process_data(filename, input_regex, output_regex='^sqJ$', 
+def process_data(filename, input_regex=None, 
+                output_regex='^sqJ$', 
+                input_columns=None,
+                output_columns=None,
                 use_xStar=False, 
                 xStarClass = 'infeasible'
                 ):
@@ -24,18 +27,18 @@ def process_data(filename, input_regex, output_regex='^sqJ$',
     except FileNotFoundError:
         data = pd.read_csv('../' + filename )
 
-    # identify relevant columns
+    # Identify relevant columns
     names = list(data.columns)
-    icol = [n for n in names if bool(re.match(input_regex, n))]
+    icol = input_columns if input_columns else [n for n in names if bool(re.match(input_regex, n))]
     icol_star = [vl + '_star' for vl in icol]
     dcol = ["dsqJ_" + x for x in icol]
 
-    # add delta xstar data
+    # Add delta xstar data
     dlcol = [vl + '_delta' for vl in icol]
     data[dlcol] = pd.DataFrame(data[icol].values - data[icol_star].values)
 
     # Identify output columns
-    ocol = [n for n in list(data.columns) if bool(re.match(output_regex, n))]
+    ocol = output_columns if output_columns else [n for n in list(data.columns) if bool(re.match(output_regex, n))]
 
     # # Add x* data
     if use_xStar:
@@ -94,11 +97,12 @@ class BaseDataset(TensorDataset):
 
     def __init__(self, filename, params, output_regex, use_xStar=False, xStarClass = 'infeasible', 
                 input_mean=None, output_mean=None, input_std=None, output_std=None, augment=False):
+        input_col = {k:params[k] for k in ['input_regex', 'input_columns'] if k in params}
         (inp, out, dout, classes) = process_data(filename,
-                    input_regex=params['input_regex'],
                     output_regex=output_regex,
                     use_xStar=use_xStar, 
-                    xStarClass=xStarClass)
+                    xStarClass=xStarClass,
+                    **input_col)
 
         self.input_mean = inp.mean(0) if input_mean is None else input_mean
         self.output_mean = out.mean(0) if output_mean is None else output_mean
@@ -189,6 +193,18 @@ def build_dataset(params, test=False):
         test_dataset = sqJDataset(params['test_filename'], params, 
                                         use_xStar=use_xStar_test,
                                         xStarClass='infeasible',
+                                        input_mean = dataset.input_mean, 
+                                        output_mean = dataset.output_mean, 
+                                        input_std = dataset.input_std, 
+                                        output_std = dataset.output_std,
+                                        augment=False)
+        return dataset, test_dataset
+    if params['model_type'] in ['sqJ_hinge_classifier']:
+        dataset = sqJDataset(params['filename'], params, use_xStar=True, 
+                                xStarClass='feasible', augment=augment_train)
+        test_dataset = sqJDataset(params['test_filename'], params, 
+                                        use_xStar=True,
+                                        xStarClass='feasible',
                                         input_mean = dataset.input_mean, 
                                         output_mean = dataset.output_mean, 
                                         input_std = dataset.input_std, 

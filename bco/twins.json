@@ -5,13 +5,14 @@
     "model_type": "sqJ_classifier_w_derivative",
   
     "model":{
+      "scalarize": "linear",
         "hidden_layers": [8,8,8],
-        "activation": "groupsort1",
+        "activation": "groupsort",
         "linear": {
             "type": "bjorck",
-            "safe_scaling": false,
+            "safe_scaling": true,
             "bjorck_beta": 0.5,
-            "bjorck_iter": 15,
+            "bjorck_iter": 10,
             "bjorck_order": 1,
             "bias": true
         },
@@ -27,9 +28,9 @@
         "per_update_proj": {
           "turned_on": false,
           "bjorck_beta": 0.5,
-          "bjorck_iter": 12,
+          "bjorck_iter": 2,
           "bjorck_order": 1,
-          "safe_scaling": true
+          "safe_scaling": false
         }
     },
   
@@ -43,20 +44,36 @@
       "momentum": 0.9,
       "weight_decay": 0.0,
       "max_grad_norm": 10000,
-      "step_size": 0.005,
+      "step_size": 0.05,
       "batch_size": 50
     },
-  
-    "grad_norm_regularizer": 1.0, 
-  
+    "epochs":10000, 
+    
+    
     "early_stopping":null,
     
     "seed": null,
-  
-    "filename": "data/twins/twins_50_n1.csv",
+    
+    "filename": "data/twins/twins_10_n1.csv",
     "test_filename": "data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
     "augment": false,
     "normalize_input":false,
-    "normalize_output":false
+    "normalize_output":false,
+    
+    "logging":{
+      "test":100,
+      "train":50
+    },
+    
+    "bounds": [[-2,-2], [2,2]],
+    "sdf_regularization_anchors":10,
+    "boundary_anchors": 10,
+
+    "grad_norm_regularizer": 1.0, 
+    "sdf_regularizer": 1.0,
+    "boundary_regularizer": 1.0
+    
+    
   }
+  

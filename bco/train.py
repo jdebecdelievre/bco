@@ -13,7 +13,6 @@ import json
 import pdb
 from tqdm import tqdm
 from collections import defaultdict
-
 from ray import tune
 
 from bco.training.models import build_model, scalarize
@@ -29,12 +28,30 @@ from bco.training.early_stopping import EarlyStopping
 
 import argparse
 
-class DummyWriter(SummaryWriter):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.close()
+import socket
+from datetime import datetime
+
+def get_params_grad(model):
+    """
+    get model parameters and corresponding gradients
+    """
+    params = []
+    grads = []
+    for param in model.parameters():
+        if not param.requires_grad:
+            continue
+        params.append(param)
+        grads.append(0. if param.grad is None else param.grad + 0.)
+    return params, grads
+
+class DummyWriter():
+    def __init__(self, log_dir=None, comment=None):
+        super().__init__()
+        self.log_dir = log_dir
+    
     def add_scalar(*args, **kwargs):
         pass
+
 
 def process_params(params):
     # Fill params
@@ -43,7 +60,7 @@ def process_params(params):
     # Restart model
     if params['model_restart']:
         model_file = params['model_restart']
-        with open(op.join("models", params['model_restart']+'.json'), "r") as f:
+        with open(op.join(dest_dir, "models", params['model_restart']+'.json'), "r") as f:
             params = json.load(f)
             params['model_restart'] = model_file
 
@@ -59,14 +76,14 @@ def process_params(params):
     torch.manual_seed(params['seed'])
     np.random.seed(params['seed'])
 
-    # Create folder for models
-    os.makedirs('models', exist_ok=True)
-
     return params
 
-def train(params={}, tune_search=False):
+def train(params={}, tune_search=False, dest_dir='.'):
     # Process params
     params = process_params(params)
+
+    # Create folder for models
+    os.makedirs(op.join(dest_dir, 'models'), exist_ok=True)
 
     # Load data
     dataset, test_dataset = build_dataset(params)
@@ -87,22 +104,28 @@ def train(params={}, tune_search=False):
     opt, scheduler = get_optimizer(params['optim'], model)
 
     # Add stochastic weight averaging
-    if params['SWA']:
-        from torchcontrib.optim import SWA
-        opt = SWA(opt, swa_start=8000, swa_freq=5, swa_lr=1e-3)
+    # if params['SWA']:
+    #     from torchcontrib.optim import SWA
+    #     opt = SWA(opt, swa_start=8000, swa_freq=5, swa_lr=1e-3)
 
     # Load pretrained model
     if params['model_restart']:
-        model.load_state_dict(torch.load(op.join("models", params['model_restart'] + ".mdl")))
-        opt.load_state_dict(torch.load(op.join("models", params['model_restart'] + ".opt")))
+        model.load_state_dict(torch.load(op.join(dest_dir, "models", params['model_restart'] + ".mdl")))
+        opt.load_state_dict(torch.load(op.join(dest_dir, "models", params['model_restart'] + ".opt")))
     
     # Prepare tensorboard logging
+    current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+    log_dir = os.path.join(dest_dir, 'runs', current_time + '_' + socket.gethostname())
     if tune_search:
-        test_writer = DummyWriter(comment=("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
-        train_writer = DummyWriter(comment=("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
+        test_writer = DummyWriter( log_dir= log_dir + \
+                        ("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
+        train_writer = DummyWriter(log_dir=log_dir + \
+                        ("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
     else:
-        test_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
-        train_writer = SummaryWriter(comment=("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
+        test_writer = SummaryWriter(log_dir=log_dir + \
+                        ("_" + params['filename_suffix'] + '_test') if params['filename_suffix'] else "_test")
+        train_writer = SummaryWriter(log_dir=log_dir + \
+                        ("_" + params['filename_suffix'] + '_train') if params['filename_suffix'] else "_train")
     basename = os.path.basename(test_writer.log_dir[:-5])
 
     # Set up early stopping
@@ -127,23 +150,25 @@ def train(params={}, tune_search=False):
     for e in iterator:
         L = defaultdict(float)
 
-        B = dataset.get_batches(shuffle=True)
+        B = dataset.get_batches(shuffle=len(dataset.slices) > 1)
         for i, o, do, cl in B:
             opt.zero_grad()
             loss, loss_dict = loss_calc(i, o, do, cl, model, params, coefs)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), params['optim']['max_grad_norm'])
-            opt.step(lambda: float(loss))
-
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), params['optim']['max_grad_norm'])
+            if params['optim']['optimizer'] == 'adahessian':
+                loss.backward(create_graph=True)
+                _, gradsH = get_params_grad(model)
+                opt.step(gradsH)
+            else:
+                loss.backward()
+                opt.step(lambda: float(loss))
             with torch.no_grad():
                 for l in loss_dict:
                     L[l] += loss_dict[l].data
                 L['loss'] += loss.data
-
-                model.logg_gradient_norm(train_writer)
+                # import ipdb; ipdb.set_trace()
                 model.projection('update')
 
-        model.logg_gradient_norm(train_writer, epoch=e)
         model.projection('epoch')
 
         # LR scheduler
@@ -160,15 +185,25 @@ def train(params={}, tune_search=False):
         if params['early_stopping'] is not None and (stop.step(torch.tensor(params['test_Jrmse']))):
             stop_here = True
 
-
         if e%params['logging']['train'] ==0 or stop_here:
-            # Log train metrics
+            # Write loss to params
+            logs = {}
+            logs['loss'] = scalarize(L['loss'])
+            for l in L:
+                logs['loss_'+l] = scalarize(L[l])
+            
+            # Save train metrics
             model.eval()
             with torch.no_grad():
-                # params.update(model.metrics(i, o, cl, train_writer, e, 'train_'))
+                input, output, _, classes = dataset.tensors
+                logs.update(model.metrics(input, output, classes, train_writer, e, 'train_'))
+                if tune_search:
+                    tune.report(**logs)
+                
                 train_writer.add_scalar('loss/loss', L['loss'], e)
                 for l in L:
                     train_writer.add_scalar('loss/'+l, L[l], e)
+                params.update(logs)
             model.train()
 
         if e%params['logging']['test'] == 0 or stop_here:
@@ -191,7 +226,7 @@ def train(params={}, tune_search=False):
             #     model.log_sing(train_writer)
 
             # Save model
-            model_file_name = os.path.join("models", basename + ".mdl")
+            model_file_name = os.path.join(dest_dir, "models", basename + ".mdl")
             opt_file_name = model_file_name[:-4]+'.opt'
             torch.save(model.state_dict(), model_file_name)
             torch.save(opt.state_dict(), opt_file_name)
@@ -204,8 +239,8 @@ def train(params={}, tune_search=False):
         if stop_here:
             break            
             
-    if params['SWA']:
-        opt.swap_swa_sgd()
+    # if params['SWA']:
+    #     opt.swap_swa_sgd()
 
     if not tune_search:
         print(params)
