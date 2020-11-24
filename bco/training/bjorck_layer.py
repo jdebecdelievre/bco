@@ -7,6 +7,25 @@ import torch.nn.functional as F
 import torch 
 import numpy as np
 
+class NrmLinear(torch.nn.Linear):
+    def __init__(self, 
+                in_features=1, 
+                out_features=1,
+                bias=True):
+        super(NrmLinear, self).__init__(in_features, out_features, bias=bias)
+
+    def reset_parameters(self):
+        stdv = 1. / np.sqrt(self.weight.size(1))
+        # torch.nn.init.orthogonal_(self.weight, gain=stdv)
+        torch.nn.init.orthogonal_(self.weight, gain=1.)
+        if self.bias is not None:
+            # self.bias.data.uniform_(-stdv, stdv)
+            self.bias.data.uniform_(-1., 1.)
+
+    def forward(self, x):
+        out = F.linear(x, self.weight)
+        out = out.div(out.norm()) * x.norm()
+        return out + self.bias
 
 class BjorckLinear(torch.nn.Linear):
     def __init__(self, 

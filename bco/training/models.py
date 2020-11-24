@@ -13,7 +13,7 @@ import json
 from time import time
 
 from lnets.models.activations import GroupSort
-from bco.training.bjorck_layer import BjorckLinear
+from bco.training.bjorck_layer import BjorckLinear, NrmLinear
 from bco.training.project_layer import ProjectLayer
 
 from bco.training.sorting import NeuralSort, SoftSort
@@ -51,7 +51,8 @@ ACTIVATIONS = {
     'abs': Abs,
     'normalize':Normalize,
     'softsort':SoftSort,
-    'neuralsort':NeuralSort
+    'neuralsort':NeuralSort,
+    'nrm':NrmLinear
 }
 
 def get_activation(keyword):
@@ -75,6 +76,8 @@ def get_activation(keyword):
 def get_linear(options):
     if options['type'].lower() == 'linear':
         return Linear#torch.nn.Linear
+    elif options['type'].lower() == 'nrm':
+        return NrmLinear
     elif 'bjorck' in options['type'].lower():
         opt = options.copy()
         del opt['type']

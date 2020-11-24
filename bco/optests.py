@@ -136,6 +136,9 @@ class Objective(nn.Module):
 
         # Build model
         model = build_model(self.params)
+            # Load pretrained model
+        if params['model_restart']:
+            model.load_state_dict(torch.load(op.join("models", params['model_restart'] + ".mdl")))
 
         if params['normalize_input']:
             model.input_mean.data = self.dataset.input_mean.data
@@ -156,7 +159,7 @@ class Objective(nn.Module):
         return loss
 
 params = {
-    "model_restart": None,
+    "model_restart": '',
     "filename_suffix": "twins",
     
     "model_type": "sqJ_classifier_w_derivative",
@@ -193,10 +196,10 @@ params = {
         },
         "grad_norm_regularizer": 1.0, 
         "seed": None,
-        # "filename": "data/multio_50/multio_2d_n0.csv",
-        # "test_filename": "data/multio_50/multio_2d_n0.csv",
-        "filename": "data/twins/twins_50_n1.csv",
-        "test_filename": "data/twins/test_twins.csv",
+        "filename": "data/multio_50/multio_2d_n0.csv",
+        "test_filename": "data/multio_50/multio_2d_n0.csv",
+        # "filename": "data/twins/twins_50_n1.csv",
+        # "test_filename": "data/twins/test_twins.csv",
         "input_regex": "^x\\d+$",
         "augment": False,
         "normalize_input":False,
@@ -222,12 +225,12 @@ params = {
       "train":50
       },
     "bounds": [[-2,-2], [2,2]],
-    "sdf_regularization_anchors":0,
-    "boundary_anchors": 0,
+    "sdf_regularization_anchors":1000,
+    "boundary_anchors": 100,
 
     "grad_norm_regularizer": 1.0, 
     "sdf_regularizer": 1.0,
-    "boundary_regularizer": 1.0
+    "boundary_regularizer": 2.0
   }
 
 def train_pyoptsparse(params={}, tune_search=False):
@@ -297,13 +300,13 @@ def train_scipy(params={}, tune_search=False):
     # Process params
     # params = process_params(params)
 
-    torch.manual_seed(7)
+    # torch.manual_seed(7)
 
     objective = Objective(params)
     objective.train()
 
 
-    maxiter = 5000
+    maxiter = 10000
     with tqdm(total=maxiter) as pbar:
         def verbose(xk):
             pbar.update(1)

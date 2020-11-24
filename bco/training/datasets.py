@@ -124,6 +124,12 @@ class BaseDataset(TensorDataset):
         n = np.maximum(inp.shape[0] // params['optim']['batch_size'], 1)
         self.slices = [(j*params['optim']['batch_size'], (j+1)*params['optim']['batch_size']) for j in range(n)]
 
+        self.batch = None
+
+        # # SDF anchors
+        # if 'bounds' in params and params['sdf_regularization_anchors'] > 0:
+
+        
 
     def get_batches(self, shuffle=True):
         if shuffle:

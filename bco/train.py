@@ -31,6 +31,8 @@ import argparse
 import socket
 from datetime import datetime
 
+import torch.autograd.profiler as profiler
+
 def get_params_grad(model):
     """
     get model parameters and corresponding gradients
@@ -152,7 +154,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
 
         B = dataset.get_batches(shuffle=len(dataset.slices) > 1)
         for i, o, do, cl in B:
-            opt.zero_grad()
+            opt.zero_grad(set_to_none=True)
             loss, loss_dict = loss_calc(i, o, do, cl, model, params, coefs)
             # torch.nn.utils.clip_grad_norm_(model.parameters(), params['optim']['max_grad_norm'])
             if params['optim']['optimizer'] == 'adahessian':
@@ -176,7 +178,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
             scheduler.step(loss)
             LR = torch.tensor([group['lr'] for group in opt.param_groups]).mean()
             train_writer.add_scalar('learning_rate', LR, e)
-            if LR< 1e-7:
+            if LR < 1e-7:
                 print(f'Stopping Criterion reached at epoch {e}: lr = {LR}')
                 stop_here = True
 
@@ -278,4 +280,9 @@ if __name__ == "__main__":
     if args.filename_suffix:
         params['filename_suffix'] = args.filename_suffix
 
-    train(params)
+    with profiler.profile() as prof:
+        with profiler.record_function("model_inference"):
+            train(params)
+
+        # prof.export_chrome_trace("trace.json")
+    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))

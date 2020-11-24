@@ -6,10 +6,10 @@
   
     "model":{
       "scalarize": "linear",
-        "hidden_layers": [8,8,8],
-        "activation": "groupsort",
+        "hidden_layers": [32,32],
+        "activation": "tanh",
         "linear": {
-            "type": "bjorck",
+            "type": "linear",
             "safe_scaling": true,
             "bjorck_beta": 0.5,
             "bjorck_iter": 10,
@@ -47,14 +47,14 @@
       "step_size": 0.05,
       "batch_size": 50
     },
-    "epochs":10000, 
+    "epochs":10, 
     
     
     "early_stopping":null,
     
     "seed": null,
     
-    "filename": "data/twins/twins_10_n1.csv",
+    "filename": "data/twins/twins_30_n1.csv",
     "test_filename": "data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
     "augment": false,
@@ -67,8 +67,8 @@
     },
     
     "bounds": [[-2,-2], [2,2]],
-    "sdf_regularization_anchors":10,
-    "boundary_anchors": 10,
+    "sdf_regularization_anchors":100,
+    "boundary_anchors": 100,
 
     "grad_norm_regularizer": 1.0, 
     "sdf_regularizer": 1.0,
