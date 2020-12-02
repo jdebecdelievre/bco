@@ -29,6 +29,11 @@ def controlled_leaky_relu(i, o, bound):
     d = np.minimum(d1,d0).sqrt()
     return F.leaky_relu(o, negative_slope=negative_slope) + negative_slope * F.relu(-(o + d))
 
+def grad_norm_reg(i, o, do, model):
+    return ((1 - torch.square(do / (model.input_std/model.output_std)).sum(dim=1)).abs().mean()
+                + model._net(i - do * o).abs().mean()
+            )
+
 def loss_calc(batch, anchors, model, params, coefs={}):
     """Computes loss depending on modeltype
 
@@ -66,31 +71,41 @@ def loss_calc(batch, anchors, model, params, coefs={}):
     _do = model.normalize(deriv = dout)
     if params['model_type'] == 'sqJ_classifier_w_derivative':
 
-        # Infeasible points (regression)
-        _ifs.requires_grad = True
-        _o_ = model._net(_ifs)
-        _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
-        
-        jpred = (_o - _o_).abs().mean()
-        djpred = (_do - _do_).abs().sum(1, keepdim=True).mean()
-        # import ipdb; ipdb.set_trace()
-        
-        # Projection of infeasible points (regression)
-        _ifs_star.requires_grad = True
-        _o_ = model._net(_ifs_star)
-        _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
-        
-        jpred = jpred + _o_.abs().mean()
-        djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
-        
-        # Feasible points (classification + grad norm reg)
-        _fs.requires_grad = True
-        _o_ = model._net(_fs)
-        _do_ = grad(_o_.sum(), [_fs], create_graph=True)[0]
-        feasible_class = F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
-        grad_norm = ((1 - torch.square(_do_ / (model.input_std/model.output_std)).sum(dim=1)).abs().mean()
-                    #  + model._net(_fs - _do_ * _o_).abs().mean()
-                    )
+        grad_norm = torch.zeros(1)
+        jpred = torch.zeros(1)
+        djpred = torch.zeros(1)
+        feasible_class = torch.zeros(1)
+        if _ifs.size(0) > 0:
+            # Infeasible points (regression)
+            _ifs.requires_grad = True
+            _o_ = model._net(_ifs)
+            _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
+            
+            jpred = (_o - _o_).abs().mean()
+            # djpred = (_do - _do_).abs().sum(1, keepdim=True).mean()
+            djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
+            grad_norm = grad_norm + grad_norm_reg(_ifs, _o_, _do_, model)
+            
+            # Projection of infeasible points (regression)
+            _ifs_star.requires_grad = True
+            _o_ = model._net(_ifs_star)
+            _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
+            
+            jpred = jpred + _o_.abs().mean()
+            # djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
+            djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
+
+            grad_norm = grad_norm + grad_norm_reg(_ifs_star, _o_, _do_, model)
+
+        if _fs.size(0) > 0:
+            # Feasible points (classification + grad norm reg)
+            _fs.requires_grad = True
+            _o_ = model._net(_fs)
+            _do_ = grad(_o_.sum(), [_fs], create_graph=True)[0]
+            feasible_class = feasible_class + F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+
+            grad_norm = grad_norm + grad_norm_reg(_fs, _o_, _do_, model)
+
 
         # Regularization anchors
         if anchors is not None and params['sdf_regularizer'] > 0:
@@ -98,9 +113,8 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             anchout = model._net(anchors, reuse=True)
             grd = grad(anchout.sum(), [anchors], create_graph=True)[0]
             anchors.requires_grad = False
-            sdf_reg = ((1 - torch.square(grd / (model.input_std/model.output_std)).sum(dim=1)).abs().mean() 
-                        #  + (model._net(anchors - grd * anchout)).abs().mean()
-                        )
+            sdf_reg = grad_norm_reg(anchors, anchout, grd, model)
+
         else:
             sdf_reg = torch.zeros(1)
         # Infeasible boundary
@@ -110,12 +124,6 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             for b in range(2):
                 for j in range(_ifs.size(1)):
                     boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
-                    # a = anchors.index_fill(1, torch.tensor(j), bound[b][j])
-                    # a.requires_grad = True
-                    # m = model._net(a, reuse=True)
-                    # g = grad(m.sum(), [a], create_graph=True)[0]
-                    # boundary_reg = boundary_reg + F.relu(-m).mean() # + (1-g.square().sum()).abs().mean()
-                    # import ipdb; ipdb.set_trace()
                     
         loss_dict = {'J loss':jpred, 
                     'dJ loss': djpred, 
