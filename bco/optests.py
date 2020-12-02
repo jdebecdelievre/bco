@@ -129,10 +129,10 @@ class Objective(nn.Module):
         self.params = params
 
         self.dataset = sqJDataset(params['filename'], params, use_xStar=True, 
-                         xStarClass='feasible', augment=params['augment'])
+                         xStarClass='feasible')
         self.params['model']['input_size'] = self.dataset.input_mean.shape[-1]
         self.params['input_size'] = self.dataset.input_mean.shape[-1]
-        self.params['train_set_size'] = self.dataset.tensors[0].shape[0]
+        self.params['train_set_size'] = self.dataset.n_total
 
         # Build model
         model = build_model(self.params)
@@ -201,7 +201,6 @@ params = {
         # "filename": "data/twins/twins_50_n1.csv",
         # "test_filename": "data/twins/test_twins.csv",
         "input_regex": "^x\\d+$",
-        "augment": False,
         "normalize_input":False,
         "normalize_output":False,
 

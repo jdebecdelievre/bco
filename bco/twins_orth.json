@@ -57,7 +57,6 @@
     "filename": "/Users/jeandebecdelievre/dsn/co/bco/data/twins/twins_10_n1.csv",
     "test_filename": "/Users/jeandebecdelievre/dsn/co/bco/data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
-    "augment": false,
     "normalize_input":false,
     "normalize_output":false
   }

@@ -55,7 +55,7 @@ class DummyWriter():
         pass
 
 
-def process_params(params):
+def process_params(params, dest_dir):
     # Fill params
     params = update_default_dict(params)
 
@@ -82,25 +82,18 @@ def process_params(params):
 
 def train(params={}, tune_search=False, dest_dir='.'):
     # Process params
-    params = process_params(params)
+    params = process_params(params, dest_dir)
 
     # Create folder for models
     os.makedirs(op.join(dest_dir, 'models'), exist_ok=True)
 
     # Load data
     dataset, test_dataset = build_dataset(params)
-    params['model']['input_size'] = dataset.input_mean.shape[-1]
-    params['input_size'] = dataset.input_mean.shape[-1]
-    params['train_set_size'] = dataset.tensors[0].shape[0]
+    params['model']['input_size'] = dataset.tensors[0].shape[-1]
+    params['train_set_size'] = dataset.n_feasible + dataset.n_infeasible
 
     # Build model
     model = build_model(params)
-    if params['normalize_input']:
-        model.input_mean.data = dataset.input_mean.data
-        model.input_std.data = dataset.input_std.data
-    if params['normalize_output']:
-        model.output_mean.data = dataset.output_mean.data
-        model.output_std.data = dataset.output_std.data
 
     # Choose opt
     opt, scheduler = get_optimizer(params['optim'], model)
@@ -152,10 +145,11 @@ def train(params={}, tune_search=False, dest_dir='.'):
     for e in iterator:
         L = defaultdict(float)
 
-        B = dataset.get_batches(shuffle=len(dataset.slices) > 1)
-        for i, o, do, cl in B:
+        B = dataset.get_batches(shuffle=dataset.n_slices > 1)
+        for batch in B:
+            anchors = dataset.get_anchors()
             opt.zero_grad(set_to_none=True)
-            loss, loss_dict = loss_calc(i, o, do, cl, model, params, coefs)
+            loss, loss_dict = loss_calc(batch, anchors, model, params, coefs)
             # torch.nn.utils.clip_grad_norm_(model.parameters(), params['optim']['max_grad_norm'])
             if params['optim']['optimizer'] == 'adahessian':
                 loss.backward(create_graph=True)
@@ -197,7 +191,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
             # Save train metrics
             model.eval()
             with torch.no_grad():
-                input, output, _, classes = dataset.tensors
+                input, output, _, classes = dataset.get_dataset()
                 logs.update(model.metrics(input, output, classes, train_writer, e, 'train_'))
                 if tune_search:
                     tune.report(**logs)
@@ -218,14 +212,11 @@ def train(params={}, tune_search=False, dest_dir='.'):
             # Save test metrics
             model.eval()
             with torch.no_grad():
-                test_input, test_output, _, test_classes = test_dataset.tensors
+                test_input, test_output, _, test_classes = test_dataset.get_dataset()
                 logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
             if tune_search:
                 tune.report(**logs)
             params.update(logs)
-            # Log matrix eigenvalues
-            # if not model.params['per_update_proj']['turned_on'] and not model.params['per_epoch_proj']['turned_on']:
-            #     model.log_sing(train_writer)
 
             # Save model
             model_file_name = os.path.join(dest_dir, "models", basename + ".mdl")
@@ -280,9 +271,9 @@ if __name__ == "__main__":
     if args.filename_suffix:
         params['filename_suffix'] = args.filename_suffix
 
-    with profiler.profile() as prof:
-        with profiler.record_function("model_inference"):
-            train(params)
+    # with profiler.profile() as prof:
+    #     with profiler.record_function("model_inference"):
+    train(params)
 
         # prof.export_chrome_trace("trace.json")
-    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))

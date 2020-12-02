@@ -29,19 +29,24 @@ def controlled_leaky_relu(i, o, bound):
     d = np.minimum(d1,d0).sqrt()
     return F.leaky_relu(o, negative_slope=negative_slope) + negative_slope * F.relu(-(o + d))
 
-def loss_calc(i, o, do, cl, model, params, coefs={}):
+def loss_calc(batch, anchors, model, params, coefs={}):
     """Computes loss depending on modeltype
 
     Parameters
     ----------
-    i : torch.tensor
-        input tensor
-    o : torch.tensor
-        output tensor (target)
-    do : torch.tensor
-        output derivative tensor
-    cl : torch.tensor
-        classes
+    batch : list of tensors
+        fl : torch.tensor
+            tensor of feasible points
+        ifl : torch.tensor
+            tensor of infeasible points
+        ifl_star : torch.tensor
+            tensor of infeasible points projection
+        o : torch.tensor
+            tensor of infeasible points output
+        do : torch.tensor
+            tensor of infeasible points output derivative
+    anchors : torch.tensor
+        tensor of anchors for various regularizations
     model : torch.nn.Module
     params : dict
         dictionary of parameters
@@ -53,92 +58,65 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
     torch.tensor
         loss
     """
-    _i = model.normalize(input = i)
-    _o = model.normalize(output = o)
-    _do = model.normalize(deriv = do)
-    if params['model_type'] == 'sqJ_hinge_classifier':
-        # _o_ = model._net(_i)
+    (fs, ifs, ifs_star, out, dout) = batch
+    _fs = model.normalize(input = fs)
+    _ifs = model.normalize(input = ifs)
+    _ifs_star = model.normalize(input = ifs_star)
+    _o = model.normalize(output = out)
+    _do = model.normalize(deriv = dout)
+    if params['model_type'] == 'sqJ_classifier_w_derivative':
 
-        # feasible = torch.abs(cl)
-        # N_feasible = np.maximum(feasible.sum(), 1)
-        # infeasible = (1 - torch.abs(cl))
-        # N_infeasible = np.maximum(feasible.sum(), 1)
-
-        # # jpred = (F.relu(_o - _o_).T @ infeasible) / N_infeasible
-        # # feasible_class =  (F.relu(_o_ * cl).T @ feasible) / N_feasible
-        # jpred = (F.leaky_relu(_o - _o_).T @ infeasible) / N_infeasible
-        # feasible_class =  (F.leaky_relu(_o_ * cl).T @ feasible) / N_feasible
-
-        # loss_dict = {'J loss':jpred,
-        #             'classification loss': feasible_class}
-        # loss = combine_losses(loss_dict, coefs)
-
-        _i.requires_grad = True
-        if _i.grad is not None:
-            _i.grad.detach_()
-            _i.grad.zero_()
-
-        _o_ = model._net(_i)
-        _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
-        _i.requires_grad = False
-        grad_norm = torch.abs(torch.square(_do_ / (model.input_std/model.output_std)).sum(dim=1) - 1.).sum()
-
-        loss_dict = {
-                    'gradient norm': grad_norm
-                    }
-        loss = combine_losses(loss_dict, coefs)
-        return loss, loss_dict
-    
-    elif params['model_type'] == 'sqJ_classifier_w_derivative':
-        _i.requires_grad = True
-        if _i.grad is not None:
-            _i.grad.detach_()
-            _i.grad.zero_()
-
-        _o_ = model._net(_i)
-        _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
-        _i.requires_grad = False
-
-        feasible = torch.abs(cl)
-        N_feasible = np.maximum(feasible.sum(), 1)
-        infeasible = (1 - torch.abs(cl))
-        N_infeasible = np.maximum(infeasible.sum(), 1)
+        # Infeasible points (regression)
+        _ifs.requires_grad = True
+        _o_ = model._net(_ifs)
+        _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
         
-        # Infeasible points
-        jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
-        djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
+        jpred = (_o - _o_).abs().mean()
+        djpred = (_do - _do_).abs().sum(1, keepdim=True).mean()
+        # import ipdb; ipdb.set_trace()
         
-        # Feasible points
-        fc_loss = F.relu(_o_ * cl)
-        feasible_class =  (fc_loss.T @ feasible) / N_feasible * (2 * (_i.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
-        grad_norm = (torch.abs(1 - torch.square(_do_ / (model.input_std/model.output_std)).sum(dim=1)).T @ feasible) / N_feasible
+        # Projection of infeasible points (regression)
+        _ifs_star.requires_grad = True
+        _o_ = model._net(_ifs_star)
+        _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
+        
+        jpred = jpred + _o_.abs().mean()
+        djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
+        
+        # Feasible points (classification + grad norm reg)
+        _fs.requires_grad = True
+        _o_ = model._net(_fs)
+        _do_ = grad(_o_.sum(), [_fs], create_graph=True)[0]
+        feasible_class = F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+        grad_norm = ((1 - torch.square(_do_ / (model.input_std/model.output_std)).sum(dim=1)).abs().mean()
+                    #  + model._net(_fs - _do_ * _o_).abs().mean()
+                    )
 
-        # SDF reg anchors
-        sdf_reg = torch.zeros(1)
-        if 'bounds' in params and params['sdf_regularization_anchors'] > 0:
-            bound  = torch.tensor(params['bounds'])
-            # anchors = torch.rand(params['sdf_regularization_anchors'], _i.shape[1]) * (bound[1:] - bound[:1]) + bound[:1]
-            engine = torch.quasirandom.SobolEngine(dimension=_i.shape[1], scramble=True)
-            anchors = engine.draw(params['sdf_regularization_anchors']).double() * (bound[1:] - bound[:1]) + bound[:1]
+        # Regularization anchors
+        if anchors is not None and params['sdf_regularizer'] > 0:
             anchors.requires_grad = True
             anchout = model._net(anchors, reuse=True)
             grd = grad(anchout.sum(), [anchors], create_graph=True)[0]
             anchors.requires_grad = False
-            sdf_reg = sdf_reg + torch.abs(1 - torch.square(grd / (model.input_std/model.output_std)).sum(dim=1)).mean()
-            sdf_reg = sdf_reg + (anchout * model._net(anchors - grd * anchout)).abs().mean()
-
-    # Infeasible boundary
+            sdf_reg = ((1 - torch.square(grd / (model.input_std/model.output_std)).sum(dim=1)).abs().mean() 
+                        #  + (model._net(anchors - grd * anchout)).abs().mean()
+                        )
+        else:
+            sdf_reg = torch.zeros(1)
+        # Infeasible boundary
         boundary_reg = torch.zeros(1)
-        if 'bounds' in params and \
-                'boundary_anchors' in params and \
-                    params['boundary_anchors'] > 0:
+        if anchors is not None and params['boundary_regularizer'] > 0:
             bound  = torch.tensor(params['bounds'])
-
-            boundary_reg = 0
             for b in range(2):
-                for j in range(_i.shape[1]):
+                for j in range(_ifs.size(1)):
                     boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
-
+                    # a = anchors.index_fill(1, torch.tensor(j), bound[b][j])
+                    # a.requires_grad = True
+                    # m = model._net(a, reuse=True)
+                    # g = grad(m.sum(), [a], create_graph=True)[0]
+                    # boundary_reg = boundary_reg + F.relu(-m).mean() # + (1-g.square().sum()).abs().mean()
+                    # import ipdb; ipdb.set_trace()
+                    
         loss_dict = {'J loss':jpred, 
                     'dJ loss': djpred, 
                     'classification loss': feasible_class, 
@@ -150,64 +128,99 @@ def loss_calc(i, o, do, cl, model, params, coefs={}):
 
         return loss, loss_dict
 
-    elif params['model_type'] == 'sqJ_orth_cert':
-        _i.requires_grad = True
-        if _i.grad is not None:
-            _i.grad.detach_()
-            _i.grad.zero_()
+    else: 
+        # Backward compatibility hack (ok becaus this part of the code will be rarely used)
+        input = torch.cat((fs, ifs))
+        
+        classes = torch.zeros(input.size(0))
+        classes[:fl.shape[0]] = 1
 
-        _o_, certif = model._net.value_with_uncertainty(_i)
-        _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
-        _i.requires_grad = False
+        output = torch.zeros(input.size(0))
+        output[fl.shape[0]:] = out
 
-        feasible = torch.abs(cl)
-        N_feasible = np.maximum(feasible.sum(), 1)
-        infeasible = (1 - torch.abs(cl))
-        N_infeasible = np.maximum(feasible.sum(), 1)
+        dout = torch.zeros((input.size(0), 2*input.size(1)+1))
+        dout[fl.shape[0]:] = dout
 
-        jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
-        djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
-        feasible_class =  (F.relu(_o_ * cl).T @ feasible) / N_feasible * (2 * (_i.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
-        grad_norm = (torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T @ feasible) / N_feasible
-        certif_norm = torch.norm(certif, dim=1).mean()
+        # /!\ does not contain projected data ifs_Star
+        
+        _i = model.normalize(input = i)
+        _o = model.normalize(output = o)
+        _do = model.normalize(deriv = do)
+        if params['model_type'] == 'sqJ_hinge_classifier':
+            _i.requires_grad = True
+            if _i.grad is not None:
+                _i.grad.detach_()
+                _i.grad.zero_()
 
-        loss_dict = {'J loss':jpred, 
-                    'dJ loss': djpred, 
-                    'classification loss': feasible_class, 
-                    'gradient norm': grad_norm,
-                    'orthonormal certificate': certif_norm}
-        loss = combine_losses(loss_dict, coefs)
-        return loss, loss_dict
+            _o_ = model._net(_i)
+            _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
+            _i.requires_grad = False
+            grad_norm = torch.abs(torch.square(_do_ / (model.input_std/model.output_std)).sum(dim=1) - 1.).sum()
+
+            loss_dict = {
+                        'gradient norm': grad_norm
+                        }
+            loss = combine_losses(loss_dict, coefs)
+            return loss, loss_dict
+
+        elif params['model_type'] == 'sqJ_orth_cert':
+            _i.requires_grad = True
+            if _i.grad is not None:
+                _i.grad.detach_()
+                _i.grad.zero_()
+
+            _o_, certif = model._net.value_with_uncertainty(_i)
+            _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
+            _i.requires_grad = False
+
+            feasible = torch.abs(cl)
+            N_feasible = np.maximum(feasible.sum(), 1)
+            infeasible = (1 - torch.abs(cl))
+            N_infeasible = np.maximum(feasible.sum(), 1)
+
+            jpred = ((_o - _o_).abs().T @ infeasible) / N_infeasible
+            djpred = ((_do - _do_).abs().sum(1, keepdim=True).T @ infeasible) / N_infeasible
+            feasible_class =  (F.relu(_o_ * cl).T @ feasible) / N_feasible * (2 * (_i.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+            grad_norm = (torch.abs(torch.norm(_do_ / (model.input_std/model.output_std), dim=1) - 1.).T @ feasible) / N_feasible
+            certif_norm = torch.norm(certif, dim=1).mean()
+
+            loss_dict = {'J loss':jpred, 
+                        'dJ loss': djpred, 
+                        'classification loss': feasible_class, 
+                        'gradient norm': grad_norm,
+                        'orthonormal certificate': certif_norm}
+            loss = combine_losses(loss_dict, coefs)
+            return loss, loss_dict
 
 
-    elif params['model_type'] == 'sqJ_classifier':
-        _o_ = model._net(_i)
-        loss_dict = {'loss' : (_o - _o_).abs().T @ (1 - torch.abs(cl)) +  \
-                F.relu(_o_ * cl).T @ torch.abs(cl)}
-        return combine_losses(loss_dict, coefs), loss_dict
-    
-    elif params['model_type'] == 'sqJ':
-        _i.requires_grad = True
-        if _i.grad is not None:
-            _i.grad.detach_()
-            _i.grad.zero_()
+        elif params['model_type'] == 'sqJ_classifier':
+            _o_ = model._net(_i)
+            loss_dict = {'loss' : (_o - _o_).abs().T @ (1 - torch.abs(cl)) +  \
+                    F.relu(_o_ * cl).T @ torch.abs(cl)}
+            return combine_losses(loss_dict, coefs), loss_dict
+        
+        elif params['model_type'] == 'sqJ':
+            _i.requires_grad = True
+            if _i.grad is not None:
+                _i.grad.detach_()
+                _i.grad.zero_()
 
-        _o_ = model._net(_i)
-        _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
-        _i.requires_grad = False
-        loss_dict = {'loss': ((_o - _o_).square() + (_do - _do_).square().sum(1, keepdim=True)).sum()}
-        return combine_losses(loss_dict, coefs), loss_dict
+            _o_ = model._net(_i)
+            _do_ = grad(_o_.sum(), [_i], create_graph=True)[0]
+            _i.requires_grad = False
+            loss_dict = {'loss': ((_o - _o_).square() + (_do - _do_).square().sum(1, keepdim=True)).sum()}
+            return combine_losses(loss_dict, coefs), loss_dict
 
-    elif params['model_type'] == 'classifier':
-        _o_ = model._net(_i)
-        # loss = F.relu(1+o_.T) @ cl + F.relu(1-o_.T) @ (1. - cl)
-        loss_dict = {'loss': F.softplus(2 * _o_ * cl).T @ torch.abs(cl) + F.softplus(-2 * _o_).T @ (1-torch.abs(cl))}
-        return combine_losses(loss_dict, coefs), loss_dict
+        elif params['model_type'] == 'classifier':
+            _o_ = model._net(_i)
+            # loss = F.relu(1+o_.T) @ cl + F.relu(1-o_.T) @ (1. - cl)
+            loss_dict = {'loss': F.softplus(2 * _o_ * cl).T @ torch.abs(cl) + F.softplus(-2 * _o_).T @ (1-torch.abs(cl))}
+            return combine_losses(loss_dict, coefs), loss_dict
 
-    elif params['model_type'] == 'xStar':
-        _o_ = model._net(_i)
-        loss_dict = {'loss': (_o - _o_).square().sum()}
-        return combine_losses(loss_dict, coefs), loss_dict
+        elif params['model_type'] == 'xStar':
+            _o_ = model._net(_i)
+            loss_dict = {'loss': (_o - _o_).square().sum()}
+            return combine_losses(loss_dict, coefs), loss_dict
 
 
 if __name__ == "__main__":

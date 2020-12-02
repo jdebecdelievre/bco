@@ -56,7 +56,6 @@
   "filename": "data/ballhd_50/ballhd_2d_n0.csv",
   "test_filename": "data/ballhd_50/test_ballhd_2d.csv",
   "input_regex": "^x\\d+$",
-  "augment": false,
   "normalize_input":false,
   "normalize_output":false
 }

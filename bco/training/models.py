@@ -265,7 +265,7 @@ class sqJModel(nn.Module):
         with torch.no_grad():
             _input = self.normalize(input=input)
             _output=self._net(_input)
-            return self._cut_off(_output=_output, tol=tol)
+            return self._cut_off(_output=_output, tol=tol).squeeze()
 
     def classification_metrics(self, classes, true_classes, writer=None, e=None, prefix=''):
         """Logs classification Metrics
@@ -368,6 +368,7 @@ class sqJModel(nn.Module):
 
         Jrmse = ((J - J_)**2).mean().sqrt()
         metrics[prefix + 'Jrmse'] = scalarize(Jrmse)
+
         if writer is not None:
             assert e is not None, "Provide epoch number"
             writer.add_scalar('Jrmse', Jrmse, e)

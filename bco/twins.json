@@ -1,13 +1,13 @@
 {
-    "model_restart": null,
+    "model_restart": null, 
     "filename_suffix": "twins",
     
     "model_type": "sqJ_classifier_w_derivative",
   
     "model":{
       "scalarize": "linear",
-        "hidden_layers": [32,32],
-        "activation": "tanh",
+        "hidden_layers": [16,16,16],
+        "activation": "logsigmoid",
         "linear": {
             "type": "linear",
             "safe_scaling": true,
@@ -47,7 +47,7 @@
       "step_size": 0.05,
       "batch_size": 50
     },
-    "epochs":10, 
+    "epochs":10000, 
     
     
     "early_stopping":null,
@@ -57,7 +57,6 @@
     "filename": "data/twins/twins_30_n1.csv",
     "test_filename": "data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
-    "augment": false,
     "normalize_input":false,
     "normalize_output":false,
     
@@ -67,8 +66,8 @@
     },
     
     "bounds": [[-2,-2], [2,2]],
-    "sdf_regularization_anchors":100,
-    "boundary_anchors": 100,
+    "sdf_regularization_anchors":30,
+    "fixed_regularization_anchors":false,
 
     "grad_norm_regularizer": 1.0, 
     "sdf_regularizer": 1.0,

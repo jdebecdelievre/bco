@@ -30,7 +30,8 @@ class SoftSort(torch.nn.Module):
             P = torch.zeros_like(P_hat, device=P_hat.device)
             P.scatter_(-1, P_hat.topk(1, -1)[1], value=1)
             P_hat = (P - P_hat).detach() + P_hat
-        return (P_hat @ scores).squeeze() 
+    
+        return (P_hat @ scores)[:, :, 0]
 
 
 class SoftSort_p1(torch.nn.Module):
@@ -127,4 +128,4 @@ class NeuralSort(torch.nn.Module):
             P[brc_idx[0], brc_idx[1], brc_idx[2]] = 1
             P_hat = (P - P_hat).detach() + P_hat
         
-        return (P_hat @ scores).squeeze()
+        return (P_hat @ scores)[:,:,0]

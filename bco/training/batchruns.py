@@ -23,7 +23,6 @@ shared_params = {'model_restart': None,
 'filename': 'data/multio_50/multio_2d_n0.csv',
 'test_filename': 'data/multio_50/test_multio_2d.csv',
  'input_regex': '^x\\d+$',
- 'augment':False,
  'model_type': 'sqJ_classifier_w_derivative',
  'seed':None,
  'SWA':False}

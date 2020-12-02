@@ -79,8 +79,8 @@ def compute_Jloss(filename, content, plot_contours=True):
     model = build_model(content)
     model.load_state_dict(torch.load(filename+'.mdl'))
     dataset, test_dataset = build_dataset(content, test=True)
-    test_input, test_output, _, test_classes = test_dataset.tensors
-    inp, out, _, classes = dataset.tensors
+    test_input, test_output, _, test_classes = test_dataset.get_dataset()
+    inp, out, _, classes = dataset.get_dataset()
     with torch.no_grad():
         content.update(model.metrics(test_input, test_output, test_classes, prefix= 'test_'))
         content.update(model.metrics(inp, out, classes, prefix= 'train_'))
@@ -95,7 +95,7 @@ def compute_Jloss(filename, content, plot_contours=True):
         pred_classes = model.classify(test_input)
         misclassified = pred_classes != test_classes
         assert misclassified.sum() == content['test_false_positives'] + content['test_false_negatives']
-        misclassified_ex = test_input[misclassified[:,0]].unsqueeze(1)
+        misclassified_ex = test_input[misclassified].unsqueeze(1)
 
     # compute the distance between misclassified tests and infeasible train
     dist = (inp - misclassified_ex).norm(dim=-1)
@@ -106,7 +106,7 @@ def compute_Jloss(filename, content, plot_contours=True):
 
     # Find optimal tolerance
     if content['model_type'] in ['xStar', 'sqJ']:
-        inp, out, _, classes = dataset.tensors
+        inp, out, _, classes = dataset.get_dataset()
         def acc(tol):
             with torch.no_grad():
                 p = model.classification_metrics(model.classify(inp, tol=tol), classes, prefix='')
@@ -117,7 +117,7 @@ def compute_Jloss(filename, content, plot_contours=True):
             content.update(model.metrics(inp, out, classes, prefix= 'train_'))
         content['tol_opt'] = tol_opt
 
-    if plot_contours and content['input_size'] == 2:
+    if plot_contours and content['model']['input_size'] == 2:
         f = score_contours(model, dataset, save=filename + 'contours', grad_norm=False)
         plt.close()
         f = score_contours(model, save=filename + 'grad_norm', grad_norm=True)
@@ -136,7 +136,7 @@ def compute_Jloss(filename, content, plot_contours=True):
         f, a = plt.subplots(figsize=(5,4))
         c = a.contourf(x1, x2, (Y), levels=30)
         a.axis('equal')
-        inp, out, _, cls = dataset.tensors
+        inp, out, _, cls = dataset.get_dataset()
         a.scatter(inp[:,0], inp[:,1], s=10., c=-cls[:,0], marker='+')
         try:
             co = f.colorbar(c, ax=a)
@@ -181,8 +181,8 @@ def score_contours(model, test_dataset=None, single_level=None, save=None,
         c = a.contourf(x1, x2, (Y), levels=np.array([single_level, 1e10]))
         
     if test_dataset is not None:
-        inp, out, _, cls = test_dataset.tensors
-        a.scatter(inp[:,0], inp[:,1], s=10., c=-cls[:,0], marker='+')
+        inp, out, _, cls = test_dataset.get_dataset()
+        a.scatter(inp[:,0], inp[:,1], s=10., c=-cls, marker='+')
     a.axis('equal')
     if single_level is None:
         try:
