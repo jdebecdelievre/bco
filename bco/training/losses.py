@@ -31,7 +31,7 @@ def controlled_leaky_relu(i, o, bound):
 
 def grad_norm_reg(i, o, do, model):
     return ((1 - torch.square(do / (model.input_std/model.output_std)).sum(dim=1)).abs().mean()
-                + model._net(i - do * o).abs().mean()
+                #+ model._net(i - do * o).abs().mean()
             )
 
 def loss_calc(batch, anchors, model, params, coefs={}):
