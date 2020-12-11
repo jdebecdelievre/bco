@@ -94,6 +94,13 @@ def train(params={}, tune_search=False, dest_dir='.'):
 
     # Build model
     model = build_model(params)
+    if params['normalize_input']:
+        model.input_mean.data = dataset.input_mean.data
+        model.input_std.data = dataset.input_std.data
+    if params['normalize_output']:
+        model.output_mean.data = dataset.output_mean.data
+        model.output_std.data = dataset.output_std.data
+ 
 
     # Choose opt
     opt, scheduler = get_optimizer(params['optim'], model)

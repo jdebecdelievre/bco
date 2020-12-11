@@ -1,0 +1,78 @@
+{
+    "model_restart": null,
+    "filename_suffix": "aerodata",
+    
+    "model_type": "sqJ_classifier_w_derivative",
+
+    "model":{
+        "scalarize":"linear",
+        "hidden_layers": [128],
+        "activation": "tanh",
+        "linear": {
+            "type": "linear",
+            "safe_scaling": true,
+            "bjorck_beta": 0.5,
+            "bjorck_iter": 10,
+            "bjorck_order": 1,
+            "bias": true
+        },
+        "per_epoch_proj": {
+        "turned_on": false,
+        "bjorck_beta": 0.5,
+        "bjorck_iter": 20,
+        "bjorck_order": 1,
+        "safe_scaling": true,
+        "reset_optimizer": false
+        },
+    
+        "per_update_proj": {
+        "turned_on": false,
+        "bjorck_beta": 0.5,
+        "bjorck_iter": 12,
+        "bjorck_order": 1,
+        "safe_scaling": true
+        }
+    },
+
+    "optim": {
+    "optimizer": "adam",
+    "lr_scheduler": {
+        "name": "plateau",
+        "patience":1500,
+        "factor":0.3
+    },
+    "betas":[0.0, 0.9, 0.99, 0.999],
+    "momentum": 0.9,
+    "weight_decay": 0,
+    "max_grad_norm": 50,
+    "step_size": 0.005,
+    "batch_size": 50
+    },
+    "epochs": 15000,
+
+
+    "early_stopping":null,
+    
+    "seed": null,
+    "sdf_regularization_anchors":500,
+    "bounds": [[-1,-1],[1,1]],
+    "fixed_regularization_anchors":true,
+    "grad_norm_regularizer": 0, 
+    "sdf_regularizer": -1,
+    "boundary_regularizer":  -1,
+
+
+    "filename": "data/xp_uav_marathon_2d_aerodata.csv",
+    "test_filename": "data/xp_uav_marathon_2d_aerodata.csv",
+    "input_regex": "^[a-z|A-Z]+nrm$",
+    "input_columns": ["V", "D"],
+    "augment": false,
+    "normalize_input":false,
+    "normalize_output":false,
+    "SWA": false,
+    "logging":{
+        "train":50,
+        "test":1500
+    }
+
+}

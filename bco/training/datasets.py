@@ -65,6 +65,13 @@ class BaseDataset():
         self.n_feasible = fs.shape[0]
         self.n_total = self.n_feasible + self.n_infeasible
 
+        # define input and output mean
+        self.input_mean = (ifs.sum(0) + fs.sum(0)) / self.n_total
+        self.output_mean = out.mean(0)
+        self.input_std = ((ifs - self.input_mean).square().sum(0) + \
+                            (fs - self.input_mean).square().sum(0)).div(self.n_total - 1).sqrt()
+        self.output_std = out.std(0)
+
         # batching
         n_slices = np.maximum( (self.n_feasible + self.n_infeasible) // params['optim']['batch_size'], 1)
         fs_batch_size = max([1, round(self.n_feasible / n_slices)])
@@ -85,6 +92,12 @@ class BaseDataset():
         self.n_anchors = params['sdf_regularization_anchors']
         self.fixed_anchors = params['fixed_regularization_anchors']
 
+    def copy_stats(self, source):
+        self.input_mean.data = source.input_mean.data
+        self.output_mean.data = source.output_mean.data
+        self.input_std.data = source.input_std.data
+        self.output_std.data = source.output_std.data
+
     def get_batches(self, shuffle=True):
         if self.n_slices == 1:
             batches = [self.tensors]
@@ -103,7 +116,7 @@ class BaseDataset():
                         out[isl[0]:isl[1]],
                         dout[isl[0]:isl[1]]])
         return batches
-    
+
     def get_dataset(self, use_xStar=False):
         fs, ifs, ifs_star, out, dout = self.tensors
 
@@ -157,11 +170,13 @@ def build_dataset(params, test=False):
     if params['model_type'] in ['sqJ_classifier_w_derivative', 'sqJ_orth_cert', 'sqJ_hinge_classifier', 'sqJ', 'classifier']:
         dataset = sqJDataset(params['filename'], params)
         test_dataset = sqJDataset(params['test_filename'], params)
+        test_dataset.copy_stats(dataset)
         return dataset, test_dataset
 
     elif params['model_type'] == 'xStar':
         dataset = xStarDataset(params['filename'], params)
         test_dataset = xStarDataset(params['test_filename'], params)
+        test_dataset.copy_stats(dataset)
         return dataset, test_dataset
     else:
         raise NotImplementedError

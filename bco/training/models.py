@@ -26,12 +26,12 @@ class Normalize(torch.nn.Module):
     def forward(self, input):
         return input / input.norm(dim=-1, keepdim=True)
 
-# Linear = torch.nn.Linear
-class Linear(torch.nn.Linear):
-    def reset_parameters(self):
-        torch.nn.init.orthogonal_(self.weight)
-        if self.bias is not None:
-            self.bias.data.uniform_(-.1, .1)
+Linear = torch.nn.Linear
+# class Linear(torch.nn.Linear):
+#     def reset_parameters(self):
+#         torch.nn.init.orthogonal_(self.weight)
+#         if self.bias is not None:
+#             self.bias.data.uniform_(-.1, .1)
 
 class SequentialWithOptions(nn.Sequential):
     def forward(self, input, **kwargs):

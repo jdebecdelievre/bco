@@ -118,12 +118,18 @@ def compute_Jloss(filename, content, plot_contours=True):
         content['tol_opt'] = tol_opt
 
     if plot_contours and content['model']['input_size'] == 2:
-        f = score_contours(model, dataset, save=filename + 'contours', grad_norm=False)
+        bounds=None if 'bounds' not in content else content['bounds']
+        f = score_contours(model, dataset, save=filename + 'contours', 
+                            grad_norm=False,bounds=bounds)
         plt.close()
-        f = score_contours(model, save=filename + 'grad_norm', grad_norm=True)
+        f = score_contours(model, save=filename + 'grad_norm', grad_norm=True, bounds=bounds)
         plt.close()
+
         sl = 0. if 'tol_opt' not in content else content['tol_opt']
-        f = score_contours(model, dataset, single_level=sl, save=filename + 'decision_boundary')
+        f = score_contours(model, dataset, single_level=sl, save=filename + 'decision_boundary', bounds=bounds)
+        plt.close()
+
+        f = loss_map(model, dataset, filename+'_lossmap', bounds=bounds)
         plt.close()
 
     if content['model_type'] == 'sqJ_orth_cert':
@@ -148,10 +154,52 @@ def compute_Jloss(filename, content, plot_contours=True):
         f.savefig(filename + 'UQ.pdf', bbox_inches='tight')
     return content, False
 
+def loss_map(model, test_dataset, save, bounds=None):
+    f, a = plt.subplots(figsize=(5,4))
+
+    bounds = bounds if bounds is not None else [[-2,-2], [2,2]]
+    (fs, ifs, ifs_star, out, dout) = test_dataset.tensors
+    
+    # Feasible points
+    a.scatter(fs[:,0], fs[:,1], s=20., c='green', marker='+')
+    cls = model.classify(fs)
+    a.scatter(fs[:,0], fs[:,1], s=20., c=cls, marker='o')
+    
+    for i in range(ifs.size(0)):
+        a.plot([ifs[i,0], ifs_star[i,0]], [ifs[i,1], ifs_star[i,1]], '--+r')
+
+    # Infeasible points
+    ifs.requires_grad = True
+    _o_ = model._net(ifs)
+    jpred = (out - _o_).abs().detach()
+    ifs.requires_grad = False
+    # import ipdb; ipdb.set_trace()
+    a.scatter(ifs[:,0], ifs[:,1], s=20., c=jpred.log().squeeze(), marker='o')
+    for i in range(ifs.size(0)):
+        a.annotate('{0:.2e}'.format(jpred.squeeze()[i]), 
+                    (ifs[i,0], ifs[i,1]),
+                    fontsize='xx-small')
+
+    # Projected points
+    ifs_star.requires_grad = True
+    _o_ = model._net(ifs_star)
+    jpred = (_o_).abs().detach()
+    ifs_star.requires_grad = False
+    a.scatter(ifs_star[:,0], ifs_star[:,1], s=20., c=jpred.log().squeeze(), marker='+')
+    for i in range(ifs.size(0)):
+        a.annotate('{0:.2e}'.format(jpred.squeeze()[i]), 
+        (ifs_star[i,0], ifs_star[i,1]),
+        fontsize='xx-small')
+
+    a.set_xlim([bounds[0][0], bounds[1][0]])
+    a.set_ylim([bounds[0][1], bounds[1][1]])
+    f.savefig(save+'.pdf', bbox_inches='tight')
 
 def score_contours(model, test_dataset=None, single_level=None, save=None, 
-                xlim=[-2,2], ylim=[-2,2], grad_norm=False):
-    x1, x2 = torch.meshgrid(torch.linspace(*xlim), torch.linspace(*ylim))
+                bounds=None, grad_norm=False):
+    bounds = bounds if bounds is not None else [[-2,-2], [2,2]]
+    x1, x2 = torch.meshgrid(torch.linspace(bounds[0][0], bounds[1][0]),
+                            torch.linspace(bounds[0][1], bounds[1][1]))
     X = torch.stack((x1.flatten(), x2.flatten())).T
 
     if not grad_norm:
@@ -181,8 +229,11 @@ def score_contours(model, test_dataset=None, single_level=None, save=None,
         c = a.contourf(x1, x2, (Y), levels=np.array([single_level, 1e10]))
         
     if test_dataset is not None:
-        inp, out, _, cls = test_dataset.get_dataset()
-        a.scatter(inp[:,0], inp[:,1], s=10., c=-cls, marker='+')
+        (fs, ifs, ifs_star, _, _) = test_dataset.tensors
+        a.scatter(fs[:,0], fs[:,1], s=20., c='green', marker='+')
+        for i in range(ifs.size(0)):
+            a.plot([ifs[i,0], ifs_star[i,0]], [ifs[i,1], ifs_star[i,1]], '--+r')
+
     a.axis('equal')
     if single_level is None:
         try:

@@ -1,4 +1,4 @@
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from bco.training.alig import AliG
 from lnets.optimizers.aggmo import AggMo
 import torch.optim.lr_scheduler as lr_scheduler
@@ -12,6 +12,12 @@ def get_optimizer(optim_params, model):
                             weight_decay=optim_params['weight_decay'],
                             betas=(optim_params['momentum'], 0.999), 
                             eps=1e-08
+        )
+
+    elif optim_params['optimizer'].lower() == 'sgd':
+        opt = SGD(model.parameters(),
+                            lr=optim_params['step_size'],
+                            weight_decay=optim_params['weight_decay']
         )
 
     elif optim_params['optimizer'].lower() == 'alig':

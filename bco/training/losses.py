@@ -88,10 +88,11 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             
             # Projection of infeasible points (regression)
             _ifs_star.requires_grad = True
-            _o_ = model._net(_ifs_star)
+            _o_ = model._net(_ifs_star) 
             _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
             
             jpred = jpred + _o_.abs().mean()
+
             # djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
             djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
 
@@ -108,23 +109,29 @@ def loss_calc(batch, anchors, model, params, coefs={}):
 
 
         # Regularization anchors
-        if anchors is not None and params['sdf_regularizer'] > 0:
-            anchors.requires_grad = True
-            anchout = model._net(anchors, reuse=True)
-            grd = grad(anchout.sum(), [anchors], create_graph=True)[0]
-            anchors.requires_grad = False
-            sdf_reg = grad_norm_reg(anchors, anchout, grd, model)
-
+        if anchors is not None:
+            _anchors = model.normalize(input = anchors)
+            # Sdf property
+            if params['sdf_regularizer'] > 0:
+                _anchors.requires_grad = True
+                anchout = model._net(_anchors, reuse=True)
+                grd = grad(anchout.sum(), [_anchors], create_graph=True)[0]
+                _anchors.requires_grad = False
+                sdf_reg = grad_norm_reg(_anchors, anchout, grd, model)
+            else:
+                sdf_reg = torch.zeros(1)
+            
+            # Infeasible boundary
+            boundary_reg = torch.zeros(1)
+            if anchors is not None and params['boundary_regularizer'] > 0:
+                bound  = torch.tensor(params['bounds'])
+                for b in range(2):
+                    for j in range(_ifs.size(1)):
+                        boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
         else:
-            sdf_reg = torch.zeros(1)
-        # Infeasible boundary
-        boundary_reg = torch.zeros(1)
-        if anchors is not None and params['boundary_regularizer'] > 0:
-            bound  = torch.tensor(params['bounds'])
-            for b in range(2):
-                for j in range(_ifs.size(1)):
-                    boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
-                    
+            sdf_reg = torch.zeros(1)           
+            boundary_reg = torch.zeros(1)
+            
         loss_dict = {'J loss':jpred, 
                     'dJ loss': djpred, 
                     'classification loss': feasible_class, 

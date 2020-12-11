@@ -6,8 +6,8 @@
   
     "model":{
       "scalarize": "linear",
-        "hidden_layers": [16,16,16],
-        "activation": "logsigmoid",
+        "hidden_layers": [16,16],
+        "activation": "tanh",
         "linear": {
             "type": "linear",
             "safe_scaling": true,
@@ -35,19 +35,19 @@
     },
   
     "optim": {
-      "optimizer": "adam",
+      "optimizer": "Adam",
       "lr_scheduler": {
         "name": "plateau",
-        "patience":500,
-        "factor":0.3
+        "patience":2000,
+        "factor":0.5
       },
       "momentum": 0.9,
       "weight_decay": 0.0,
       "max_grad_norm": 10000,
-      "step_size": 0.05,
+      "step_size": 0.005,
       "batch_size": 50
     },
-    "epochs":10000, 
+    "epochs":50000, 
     
     
     "early_stopping":null,
@@ -70,8 +70,8 @@
     "fixed_regularization_anchors":false,
 
     "grad_norm_regularizer": 1.0, 
-    "sdf_regularizer": 1.0,
-    "boundary_regularizer": 1.0
+    "sdf_regularizer": 1,
+    "boundary_regularizer": -1
     
     
   }
