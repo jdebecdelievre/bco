@@ -57,8 +57,8 @@
     "filename": "data/twins/twins_30_n1.csv",
     "test_filename": "data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
-    "normalize_input":false,
-    "normalize_output":false,
+    "normalize_input":true,
+    "normalize_output":true,
     
     "logging":{
       "test":100,

@@ -78,6 +78,10 @@ def process_params(params, dest_dir):
     torch.manual_seed(params['seed'])
     np.random.seed(params['seed'])
 
+    # Data normalization is not possible with Bjorck layers because they guarnatee a 
+    # Lipshitz constant of exactly one 
+    if params['normalize_input'] or params['normalize_output']:
+        assert params['model']['linear'] != 'bjorck', "Bjorck layers incompatible with data normalization"
     return params
 
 def train(params={}, tune_search=False, dest_dir='.'):
@@ -98,7 +102,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
         model.input_mean.data = dataset.input_mean.data
         model.input_std.data = dataset.input_std.data
     if params['normalize_output']:
-        model.output_mean.data = dataset.output_mean.data
+        model.output_mean.data = dataset.output_mean.data*0.
         model.output_std.data = dataset.output_std.data
  
 

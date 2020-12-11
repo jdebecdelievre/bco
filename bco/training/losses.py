@@ -80,10 +80,10 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _ifs.requires_grad = True
             _o_ = model._net(_ifs)
             _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
-            
+
             jpred = (_o - _o_).abs().mean()
-            # djpred = (_do - _do_).abs().sum(1, keepdim=True).mean()
-            djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
+            djpred = (_do - _do_).abs().sum(1, keepdim=True).mean()
+            # djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
             grad_norm = grad_norm + grad_norm_reg(_ifs, _o_, _do_, model)
             
             # Projection of infeasible points (regression)
@@ -93,8 +93,8 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             
             jpred = jpred + _o_.abs().mean()
 
-            # djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
-            djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
+            djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
+            # djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
 
             grad_norm = grad_norm + grad_norm_reg(_ifs_star, _o_, _do_, model)
 

@@ -68,9 +68,15 @@ class BaseDataset():
         # define input and output mean
         self.input_mean = (ifs.sum(0) + fs.sum(0)) / self.n_total
         self.output_mean = out.mean(0)
-        self.input_std = ((ifs - self.input_mean).square().sum(0) + \
-                            (fs - self.input_mean).square().sum(0)).div(self.n_total - 1).sqrt()
-        self.output_std = out.std(0)
+        if self.n_total > 1:
+            self.input_std = ((ifs - self.input_mean).square().sum(0) + \
+                                (fs - self.input_mean).square().sum(0)).div(self.n_total - 1).sqrt()
+        else:
+            self.input_std = torch.ones(ifs.shape(1))
+        if self.n_infeasible > 1:
+            self.output_std = out.std(0)
+        else:
+            self.output_std = torch.ones(ifs.shape(1))
 
         # batching
         n_slices = np.maximum( (self.n_feasible + self.n_infeasible) // params['optim']['batch_size'], 1)
