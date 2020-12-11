@@ -70,43 +70,37 @@ def loss_calc(batch, anchors, model, params, coefs={}):
     _o = model.normalize(output = out)
     _do = model.normalize(deriv = dout)
     if params['model_type'] == 'sqJ_classifier_w_derivative':
-
-        grad_norm = torch.zeros(1)
-        jpred = torch.zeros(1)
-        djpred = torch.zeros(1)
-        feasible_class = torch.zeros(1)
+        
+        loss_dict = {}
         if _ifs.size(0) > 0:
             # Infeasible points (regression)
             _ifs.requires_grad = True
             _o_ = model._net(_ifs)
             _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
 
-            jpred = (_o - _o_).abs().mean()
-            djpred = (_do - _do_).abs().sum(1, keepdim=True).mean()
+            loss_dict['J loss'] = (_o - _o_).abs().mean()
+            loss_dict['dJ loss'] = (_do - _do_).abs().sum(1, keepdim=True).mean()
             # djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
-            grad_norm = grad_norm + grad_norm_reg(_ifs, _o_, _do_, model)
+            loss_dict['gradient norm'] = grad_norm_reg(_ifs, _o_, _do_, model)
             
             # Projection of infeasible points (regression)
             _ifs_star.requires_grad = True
             _o_ = model._net(_ifs_star) 
             _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
             
-            jpred = jpred + _o_.abs().mean()
-
-            djpred = djpred + (_do - _do_).abs().sum(1, keepdim=True).mean()
+            loss_dict['J loss z*'] = _o_.abs().mean()
+            loss_dict['dJ loss z*'] = (_do - _do_).abs().sum(1, keepdim=True).mean()
             # djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
-
-            grad_norm = grad_norm + grad_norm_reg(_ifs_star, _o_, _do_, model)
+            loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs_star, _o_, _do_, model)
 
         if _fs.size(0) > 0:
             # Feasible points (classification + grad norm reg)
             _fs.requires_grad = True
             _o_ = model._net(_fs)
             _do_ = grad(_o_.sum(), [_fs], create_graph=True)[0]
-            feasible_class = feasible_class + F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
-
-            grad_norm = grad_norm + grad_norm_reg(_fs, _o_, _do_, model)
-
+            
+            loss_dict['classification loss']= F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+            loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_fs, _o_, _do_, model)
 
         # Regularization anchors
         if anchors is not None:
@@ -117,30 +111,31 @@ def loss_calc(batch, anchors, model, params, coefs={}):
                 anchout = model._net(_anchors, reuse=True)
                 grd = grad(anchout.sum(), [_anchors], create_graph=True)[0]
                 _anchors.requires_grad = False
-                sdf_reg = grad_norm_reg(_anchors, anchout, grd, model)
-            else:
-                sdf_reg = torch.zeros(1)
-            
-            # Infeasible boundary
+                loss_dict['sdf regularization'] = grad_norm_reg(_anchors, anchout, grd, model)
+
+            # Monotonicity
             boundary_reg = torch.zeros(1)
-            if anchors is not None and params['boundary_regularizer'] > 0:
+            if "monotonicity" in params:
+                mono_reg = torch.zeros(1)
+                for i,m in enumerate(params["monotonicity"]):
+                    if m is None:
+                        continue
+                    else:
+                        mono_reg = mono_reg + F.relu(- m * grd[:, i])
+                loss_dict['monotonicity regularization'] = mono_reg  
+
+            # Infeasible boundary
+            if params['boundary_regularizer'] > 0:
+                boundary_reg = torch.zeros(1)
                 bound  = torch.tensor(params['bounds'])
                 for b in range(2):
                     for j in range(_ifs.size(1)):
                         boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
-        else:
-            sdf_reg = torch.zeros(1)           
-            boundary_reg = torch.zeros(1)
-            
-        loss_dict = {'J loss':jpred, 
-                    'dJ loss': djpred, 
-                    'classification loss': feasible_class, 
-                    'gradient norm': grad_norm,
-                    'sdf regularization': sdf_reg,
-                    'boundary regularization': boundary_reg,
-                    }
-        loss = combine_losses(loss_dict, coefs)
+                loss_dict['boundary regularization'] = boundary_reg
 
+                
+
+        loss = combine_losses(loss_dict, coefs)
         return loss, loss_dict
 
     else: 
