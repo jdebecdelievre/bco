@@ -151,19 +151,19 @@ def loss_calc(batch, anchors, model, params, coefs={}):
         if _fs.size(0) > 0:
             # Feasible points (classification + grad norm reg)
             _o_ = model._net(_fs)
-            loss_dict['classification loss']= F.relu(_o_).mean() 
+            loss_dict['classification loss']= F.leaky_relu(_o_).mean() * (2 * (fs.size(1) + 1))
 
         # Regularization anchors
-        if anchors is not None:
-            _anchors = model.normalize(input = anchors)
-            # Sdf property
-            if params['sdf_regularizer'] > 0:
-                # _anchors.requires_grad = True
-                anchout = model._net(_anchors, reuse=True)
-                # grd = grad(anchout.sum(), [_anchors], create_graph=True)[0]
-                # _anchors.requires_grad = False
-                # loss_dict['sdf regularization'] = grad_norm_reg(_anchors, anchout, grd, model)
-                loss_dict['sdf regularization'] = - 1e-2 * (torch.cdist(anchout, anchout) / (torch.cdist(anchors, anchors) + 1e-6 * torch.eye(anchout.size(0)))).mean()
+        # if anchors is not None:
+        #     _anchors = model.normalize(input = anchors)
+        #     # Sdf property
+        #     if params['sdf_regularizer'] > 0:
+        #         # _anchors.requires_grad = True
+        #         anchout = model._net(_anchors, reuse=True)
+        #         # grd = grad(anchout.sum(), [_anchors], create_graph=True)[0]
+        #         # _anchors.requires_grad = False
+        #         # loss_dict['sdf regularization'] = grad_norm_reg(_anchors, anchout, grd, model)
+        #         loss_dict['sdf regularization'] = - 1e-2 * (torch.cdist(anchout, anchout) / (torch.cdist(anchors, anchors) + 1e-6 * torch.eye(anchout.size(0)))).mean()
 
             # # Monotonicity
             # boundary_reg = torch.zeros(1)
@@ -186,6 +186,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             #     loss_dict['boundary regularization'] = boundary_reg
 
         loss = combine_losses(loss_dict, coefs)
+        # import ipdb; ipdb.set_trace()
         return loss, loss_dict
 
     else: 

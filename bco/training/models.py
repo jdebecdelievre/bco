@@ -23,7 +23,7 @@ class Abs(torch.nn.Module):
     def forward(self, input):
         return torch.abs(input)
 
-class SoftSort(torch.nn.Module):
+class FastSoftSort(torch.nn.Module):
     def forward(self, input):
         return soft_sort(input, regularization_strength=.5)
 
@@ -34,14 +34,16 @@ class Normalize(torch.nn.Module):
 class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
         super().__init__()
-        self.offset_in = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
-        self.offset_out = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
+        # c = torch.nn.Linear(input_size, input_size) # use as initializer
+        self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
+        self.center.data.uniform_(-.1, .1)
+        self.offset = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
 
     def forward(self, input):
-        h = input - self.offset_in
+        h = input - self.center
         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
         self.gdt = h / nrm
-        return nrm - self.offset_out.square()
+        return nrm - self.offset.square()
 
 class RBFnet(torch.nn.Module):
     def __init__(self, n_centroids, input_features):
@@ -111,7 +113,7 @@ ACTIVATIONS = {
     'logsigmoid':nn.LogSigmoid,
     'identity':nn.Identity,
     'groupsort':lambda :GroupSort(1),
-    'fastsort': SoftSort, 
+    'fastsort': FastSoftSort, 
     'abs': Abs,
     'normalize':Normalize,
     'softsort':SoftSort,

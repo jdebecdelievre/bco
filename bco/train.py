@@ -76,6 +76,7 @@ def process_params(params, dest_dir):
     
     # Set random seed
     torch.manual_seed(params['seed'])
+    torch.set_deterministic(True)
     np.random.seed(params['seed'])
 
     # Data normalization is not possible with Bjorck layers because they guarnatee a 
