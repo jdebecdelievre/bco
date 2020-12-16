@@ -12,26 +12,66 @@ op = os.path
 import json
 from time import time
 
-from lnets.models.activations import GroupSort
+from bco.training.groupsort import GroupSort
 from bco.training.bjorck_layer import BjorckLinear, NrmLinear
 from bco.training.project_layer import ProjectLayer
 
 from bco.training.sorting import NeuralSort, SoftSort
+from fast_soft_sort.pytorch_ops import soft_sort
 
 class Abs(torch.nn.Module):
     def forward(self, input):
         return torch.abs(input)
 
+class SoftSort(torch.nn.Module):
+    def forward(self, input):
+        return soft_sort(input, regularization_strength=.5)
+
 class Normalize(torch.nn.Module):
     def forward(self, input):
         return input / input.norm(dim=-1, keepdim=True)
 
-Linear = torch.nn.Linear
+class DistanceModule(torch.nn.Module):
+    def __init__(self, input_size):
+        super().__init__()
+        self.offset_in = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
+        self.offset_out = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
+
+    def forward(self, input):
+        h = input - self.offset_in
+        nrm = torch.norm(h, p=2, dim=1, keepdim=True)
+        self.gdt = h / nrm
+        return nrm - self.offset_out.square()
+
+class RBFnet(torch.nn.Module):
+    def __init__(self, n_centroids, input_features):
+        super().__init__()
+        assert n_centroids > 0
+        self.centroids = torch.nn.ModuleList([DistanceModule(input_features) for i in range(n_centroids)])
+
+    def forward(self, input):
+        D = torch.stack([c(input) for c in self.centroids])
+        out = torch.min(D, dim=0).values
+        return out
+
+    def apply_jacobian(self, x):
+        raise NotImplementedError
+
+# Linear = torch.nn.Linear
+class Linear(torch.nn.Linear):
+    def reset_parameters(self):
+        torch.nn.init.orthogonal_(self.weight)
+        if self.bias is not None:
+            self.bias.data.uniform_(-.1, .1)
+    
+    def apply_jacobian(self, x):
+        return x @ self.weight
+
 # class Linear(torch.nn.Linear):
 #     def reset_parameters(self):
-#         torch.nn.init.orthogonal_(self.weight)
-#         if self.bias is not None:
-#             self.bias.data.uniform_(-.1, .1)
+#         super().reset_parameters()
+#         self.weight.data.div_(100.).add_(torch.eye(*self.weight.shape))
+#         self.bias.div(100.)
 
 class SequentialWithOptions(nn.Sequential):
     def forward(self, input, **kwargs):
@@ -42,12 +82,36 @@ class SequentialWithOptions(nn.Sequential):
                 input = module(input)
         return input
 
+    def get_value_and_gradient(self, input):
+        out = self.forward(input)
+
+        # Get gradient for last layer (vector)
+        if type(self[-1]) == DistanceModule:
+            w = self[-1].gdt
+        elif type(self[-1]) == Linear:
+            w = self[-1].weight.repeat(input.size(0),1)
+        else:
+            raise NotImplementedError
+
+        # Apply Jacobian of all earlier layers
+        grad = self.jvp(w, from_layer=0, to_layer=-2)
+        return out, grad
+    
+    def jvp(self, w, from_layer=0, to_layer=-2):
+        L = len(self)
+        if to_layer==-2:
+            to_layer = L-2
+        for l in range(to_layer, from_layer-1, -1):
+            w = self[l].apply_jacobian(w)
+        return w
+
 ACTIVATIONS = {
     'relu':nn.ReLU,
     'tanh':nn.Tanh,
     'logsigmoid':nn.LogSigmoid,
     'identity':nn.Identity,
     'groupsort':lambda :GroupSort(1),
+    'fastsort': SoftSort, 
     'abs': Abs,
     'normalize':Normalize,
     'softsort':SoftSort,
@@ -75,13 +139,23 @@ def get_activation(keyword):
 
 def get_linear(options):
     if options['type'].lower() == 'linear':
-        return Linear#torch.nn.Linear
+        L = Linear
+        if 'spectral_norm' in options and options['spectral_norm']:
+            def L(*args, **kwargs):
+                return torch.nn.utils.spectral_norm(Linear(*args, **kwargs))
+        return L
     elif options['type'].lower() == 'nrm':
         return NrmLinear
     elif 'bjorck' in options['type'].lower():
         opt = options.copy()
         del opt['type']
-        return lambda inp, out: BjorckLinear(inp, out, **opt)
+        return lambda inp, out: BjorckLinear(inp, out, 
+          safe_scaling = options["safe_scaling"],
+          bjorck_beta = options["bjorck_beta"],
+          bjorck_iter = options["bjorck_iter"],
+          bjorck_order = options["bjorck_order"],
+          bias = options["bias"]
+          )
     elif 'projector' in options['type'].lower():
         opt = options.copy()
         del opt['type']
@@ -99,8 +173,10 @@ def vectorize_params(value, n, get_fn = lambda x:x):
         valvec = [get_fn(value)] * n
     return valvec
 
-def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, scalarize='linear'):
+def build_layers(model_params, output_size):
     # scalarize can be 'rbf{int}' , 'linear' or None
+    hidden_layers, activation, linear_layers, input_size, scalarize = (model_params[k] for k in ['hidden_layers', 'activation', 'linear', 'input_size', 'scalarize'])
+    
     n = len(hidden_layers)
     
     activation = vectorize_params(activation, n, get_activation)
@@ -110,11 +186,15 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         linear_layers[0](input_size, hidden_layers[0]),
         activation[0]() 
         ]
+    if 'dropout' in model_params and model_params['dropout'] > 0:
+        layers.append(torch.nn.Dropout(model_params['dropout']))
 
     for i in range(n-1):
         layers += [linear_layers[i](hidden_layers[i], hidden_layers[i+1]),
         activation[i+1]()
         ]
+        if 'dropout' in model_params and model_params['dropout'] > 0:
+            layers.append(torch.nn.Dropout(model_params['dropout']))
 
     model = SequentialWithOptions(*layers)
     
@@ -125,49 +205,12 @@ def build_layers(hidden_layers, activation, linear_layers, input_size, output_si
         model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], output_size))
     elif 'rbf' in scalarize:
         rbf = int(scalarize.split('rbf')[-1])
-        model.add_module(str(len(model)), RBFnet(rbf, layers[-2].out_features))
+        if rbf == 1:
+            model.add_module(str(len(model)), DistanceModule(layers[-2].out_features))
+        else:
+            model.add_module(str(len(model)), RBFnet(rbf, layers[-2].out_features))
 
     return model
-
-# class MinMaxModel(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.lin = torch.nn.ModuleList()
-#         for i in range(12):
-#             self.lin.append(torch.nn.Linear(2, 64))
-        
-#     def forward(self, input):
-#         L = torch.zeros(input.shape[0], 12)
-#         for i in range(12):
-#             L[:, i] = torch.min(self.lin[i](input), dim=1).values
-#         return torch.max(L, dim=1).values.unsqueeze(-1)
-
-# def build_layers(hidden_layers, activation, linear_layers, input_size, output_size, scalarize='linear'):
-    # return MinMaxModel()
-
-class DistanceModule(torch.nn.Module):
-    def __init__(self, input_size):
-        super().__init__()
-        self.center = torch.nn.Linear(input_size, input_size)
-        self.center.weight.requires_grad = False
-        self.center.weight.data = torch.eye(input_size)
-        self.offset = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
-
-    def forward(self, input):
-        return torch.norm(self.center.forward(input), p=2, dim=1, keepdim=True) - self.offset.square()
-
-
-class RBFnet(torch.nn.Module):
-    def __init__(self, n_centroids, input_features):
-        super().__init__()
-        assert n_centroids > 0
-        self.centroids = torch.nn.ModuleList([DistanceModule(input_features) for i in range(n_centroids)])
-
-    def forward(self, input):
-        D = torch.stack([c(input) for c in self.centroids])
-        out = torch.min(D, dim=0).values
-        return out
-
 
 def scalarize(val):
     return np.atleast_1d(val.squeeze().detach().data.numpy())[0]
@@ -176,12 +219,7 @@ class sqJModel(nn.Module):
     def __init__(self, model_params):
         super().__init__()
         self.params = model_params
-        self._net = build_layers(
-            model_params['hidden_layers'], 
-            model_params['activation'],
-            model_params['linear'], 
-            model_params['input_size'], 1,
-            model_params['scalarize'])
+        self._net = build_layers(model_params,1)
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
@@ -456,11 +494,7 @@ class OrthonormalCertificates(sqJModel):
     def __init__(self, model_params):
         super(sqJModel, self).__init__()
         self.params = model_params
-        self._net  = SubNet(build_layers(
-                        model_params['hidden_layers'], 
-                        model_params['activation'],
-                        model_params['linear'], 
-                        model_params['input_size'], model_params['hidden_layers'][-1]))
+        self._net  = SubNet(build_layers(model_params, model_params['input_size']))
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
@@ -486,11 +520,7 @@ class ProjectorModel(sqJModel):
     def __init__(self, model_params):
         super(sqJModel, self).__init__()
         self.params = model_params
-        self._net  = ProjNet(build_layers(
-                        model_params['hidden_layers'], 
-                        model_params['activation'],
-                        model_params['linear'], 
-                        model_params['input_size'], model_params['input_size'], scalarize=None))
+        self._net  = ProjNet(build_layers( model_params, model_params['input_size']))
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']) ,requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']) ,requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(1) ,requires_grad=False)
@@ -502,11 +532,7 @@ class ProjectorModel(sqJModel):
 class xStarModel(sqJModel):
     def __init__(self, model_params):
         super().__init__(model_params)
-        self._nets = torch.nn.ModuleList([build_layers(
-            model_params['hidden_layers'], 
-            model_params['activation'],
-            model_params['linear'], 
-            model_params['input_size'], 1) for i in range(model_params['input_size'])])
+        self._nets = torch.nn.ModuleList([build_layers(model_params, 1) for i in range(model_params['input_size'])])
         self.input_mean = nn.Parameter(torch.zeros(model_params['input_size']), requires_grad=False)
         self.input_std = nn.Parameter(torch.ones(model_params['input_size']), requires_grad=False)
         self.output_mean = nn.Parameter(torch.zeros(model_params['input_size']), requires_grad=False)

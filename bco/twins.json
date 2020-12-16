@@ -5,16 +5,17 @@
     "model_type": "sqJ_classifier_w_derivative",
   
     "model":{
-      "scalarize": "linear",
-        "hidden_layers": [16,16],
-        "activation": "tanh",
+      "scalarize": "rbf1",
+        "hidden_layers": [12,12],
+        "activation": "groupsort",
         "linear": {
             "type": "linear",
             "safe_scaling": true,
             "bjorck_beta": 0.5,
             "bjorck_iter": 10,
             "bjorck_order": 1,
-            "bias": true
+            "bias": true,
+            "spectral_norm":true
         },
         "per_epoch_proj": {
           "turned_on": false,
@@ -24,7 +25,6 @@
           "safe_scaling": true,
           "reset_optimizer": false
         },
-    
         "per_update_proj": {
           "turned_on": false,
           "bjorck_beta": 0.5,
@@ -57,8 +57,8 @@
     "filename": "data/twins/twins_30_n1.csv",
     "test_filename": "data/twins/test_twins.csv",
     "input_regex": "^x\\d+$",
-    "normalize_input":true,
-    "normalize_output":true,
+    "normalize_input":false,
+    "normalize_output":false,
     
     "logging":{
       "test":100,
@@ -69,9 +69,9 @@
     "sdf_regularization_anchors":30,
     "fixed_regularization_anchors":false,
 
-    "grad_norm_regularizer": 1.0, 
-    "sdf_regularizer": 1,
-    "boundary_regularizer": -1
+    "grad_norm_regularizer": -1.0, 
+    "sdf_regularizer": -1,
+    "boundary_regularizer": -1.0
     
     
   }

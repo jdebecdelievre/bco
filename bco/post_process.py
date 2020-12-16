@@ -78,6 +78,7 @@ def compute_Jloss(filename, content, plot_contours=True):
 
     model = build_model(content)
     model.load_state_dict(torch.load(filename+'.mdl'))
+    model.eval()
     dataset, test_dataset = build_dataset(content, test=True)
     test_input, test_output, _, test_classes = test_dataset.get_dataset()
     inp, out, _, classes = dataset.get_dataset()
