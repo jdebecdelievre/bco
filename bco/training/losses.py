@@ -151,8 +151,8 @@ def loss_calc(batch, anchors, model, params, coefs={}):
         if _fs.size(0) > 0:
             # Feasible points (classification + grad norm reg)
             _o_ = model._net(_fs)
-            loss_dict['classification loss']= F.leaky_relu(_o_).mean() * (2 * (fs.size(1) + 1))
-
+            loss_dict['classification loss']= F.leaky_relu(_o_).mean()
+            
         # Regularization anchors
         # if anchors is not None:
         #     _anchors = model.normalize(input = anchors)
