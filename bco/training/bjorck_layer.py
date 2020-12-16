@@ -57,6 +57,9 @@ class BjorckLinear(torch.nn.Linear):
             self.ortho_w = self.orthonormalize()
         assert not torch.isnan(self.ortho_w).any(), "Bjorck Orthonormalization did not converge"
         return F.linear(x, self.ortho_w, self.bias)
+    
+    def apply_jacobian(self, x):
+        return x @ self.ortho_w
 
     def orthonormalize(self, safe_scaling=None, bjorck_beta=None, bjorck_iter=None, bjorck_order=None):
         safe_scaling = safe_scaling if safe_scaling else self.safe_scaling

@@ -11,6 +11,7 @@ import os
 op = os.path
 import json
 from time import time
+from math import sqrt
 
 from bco.training.groupsort import GroupSort
 from bco.training.bjorck_layer import BjorckLinear, NrmLinear
@@ -23,7 +24,7 @@ class Abs(torch.nn.Module):
     def forward(self, input):
         return torch.abs(input)
 
-class SoftSort(torch.nn.Module):
+class FastSoftSort(torch.nn.Module):
     def forward(self, input):
         return soft_sort(input, regularization_strength=.5)
 
@@ -31,17 +32,40 @@ class Normalize(torch.nn.Module):
     def forward(self, input):
         return input / input.norm(dim=-1, keepdim=True)
 
+# class DistanceModule(torch.nn.Module):
+#     def __init__(self, input_size):
+#         super().__init__()
+#         # c = torch.nn.Linear(input_size, input_size) # use as initializer
+#         self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
+#         bound = 1 / sqrt(input_size)
+#         self.center.data.uniform_(-bound, bound)
+#         # self.center = torch.nn.Parameter(torch.zeros(input_size), requires_grad=True)
+#         self.offset = torch.nn.Parameter(torch.rand(1)*.01, requires_grad=True)
+
+#     def forward(self, input):
+#         h = input - self.center
+#         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
+#         self.gdt = h / nrm
+#         return nrm - self.offset.square()
+
 class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
         super().__init__()
-        self.offset_in = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
-        self.offset_out = torch.nn.Parameter(-torch.ones(1), requires_grad=True)
+        self.offset = torch.nn.Parameter(torch.Tensor(1), requires_grad=True)
+        self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        bound = 1 / sqrt(self.center.data.size(0))
+        self.center.data.uniform_(-bound, bound)
+        # self.center.data = torch.zeros(self.center.data.size(0))
+        self.offset.data = -torch.ones(1)
 
     def forward(self, input):
-        h = input - self.offset_in
+        h = input - self.center
         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
         self.gdt = h / nrm
-        return nrm - self.offset_out.square()
+        return nrm - self.offset.square()
 
 class RBFnet(torch.nn.Module):
     def __init__(self, n_centroids, input_features):
@@ -62,8 +86,11 @@ class Linear(torch.nn.Linear):
     def reset_parameters(self):
         torch.nn.init.orthogonal_(self.weight)
         if self.bias is not None:
-            self.bias.data.uniform_(-.1, .1)
-    
+            # bound = 1 / sqrt(self.weight.size(1))
+            # self.bias.data.uniform_(-bound, bound)
+            # self.bias.data.uniform_(-.1, .1)
+            self.bias.data = torch.zeros(self.weight.size(0))
+
     def apply_jacobian(self, x):
         return x @ self.weight
 
@@ -111,7 +138,7 @@ ACTIVATIONS = {
     'logsigmoid':nn.LogSigmoid,
     'identity':nn.Identity,
     'groupsort':lambda :GroupSort(1),
-    'fastsort': SoftSort, 
+    'fastsort': FastSoftSort, 
     'abs': Abs,
     'normalize':Normalize,
     'softsort':SoftSort,
@@ -209,7 +236,6 @@ def build_layers(model_params, output_size):
             model.add_module(str(len(model)), DistanceModule(layers[-2].out_features))
         else:
             model.add_module(str(len(model)), RBFnet(rbf, layers[-2].out_features))
-
     return model
 
 def scalarize(val):
