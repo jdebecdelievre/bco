@@ -32,28 +32,13 @@ class Normalize(torch.nn.Module):
     def forward(self, input):
         return input / input.norm(dim=-1, keepdim=True)
 
-# class DistanceModule(torch.nn.Module):
-#     def __init__(self, input_size):
-#         super().__init__()
-#         # c = torch.nn.Linear(input_size, input_size) # use as initializer
-#         self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
-#         bound = 1 / sqrt(input_size)
-#         self.center.data.uniform_(-bound, bound)
-#         # self.center = torch.nn.Parameter(torch.zeros(input_size), requires_grad=True)
-#         self.offset = torch.nn.Parameter(torch.rand(1)*.01, requires_grad=True)
-
-#     def forward(self, input):
-#         h = input - self.center
-#         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
-#         self.gdt = h / nrm
-#         return nrm - self.offset.square()
-
 class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
         super().__init__()
         self.offset = torch.nn.Parameter(torch.Tensor(1), requires_grad=True)
         self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
         self.reset_parameters()
+
 
     def reset_parameters(self) -> None:
         bound = 1 / sqrt(self.center.data.size(0))
@@ -107,6 +92,8 @@ class SequentialWithOptions(nn.Sequential):
                 input = module(input, **kwargs)
             if type(module) == GroupSort:
                 input = module(input, freeze_sort)
+            else:
+                input = module(input)
         return input
 
     def get_value_and_gradient(self, input):

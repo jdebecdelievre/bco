@@ -19,13 +19,13 @@ class GroupSort(torch.nn.Module):
             self.indices = indices
             self.indices_t = get_transpose_indices(indices)
         else:
-            if num_units > 1:
+            if self.num_units > 1:
                 raise NotImplementedError("freeze_sort not tested groupsort (only for fullsort)")
             return torch.gather(x, 1, self.indices)    
         return group_sorted
     
     def apply_jacobian(self, x):
-        if num_units > 1:
+        if self.num_units > 1:
             raise NotImplementedError("freeze_sort not tested groupsort (only for fullsort)")
         return torch.gather(x, 1, self.indices_t)
 
