@@ -101,12 +101,12 @@ class Linear(torch.nn.Linear):
 #         self.bias.div(100.)
 
 class SequentialWithOptions(nn.Sequential):
-    def forward(self, input, **kwargs):
+    def forward(self, input, freeze_sort=False, **kwargs):
         for module in self:
             if type(module) == BjorckLinear and hasattr(module, 'weight'):
                 input = module(input, **kwargs)
-            else:
-                input = module(input)
+            if type(module) == GroupSort:
+                input = module(input, freeze_sort)
         return input
 
     def get_value_and_gradient(self, input):
