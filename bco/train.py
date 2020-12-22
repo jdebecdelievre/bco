@@ -14,6 +14,7 @@ import pdb
 from tqdm import tqdm
 from collections import defaultdict
 from ray import tune
+import random
 
 from bco.training.models import build_model, scalarize
 from bco.training.datasets import build_dataset
@@ -105,8 +106,23 @@ def train(params={}, tune_search=False, dest_dir='.'):
     if params['normalize_output']:
         model.output_mean.data = dataset.output_mean.data*0.
         model.output_std.data = dataset.output_std.data
- 
 
+    # Load pretrained model
+    if params['model_restart']:
+        model.load_state_dict(torch.load(op.join(dest_dir, "models", params['model_restart'] + ".mdl")))
+        opt.load_state_dict(torch.load(op.join(dest_dir, "models", params['model_restart'] + ".opt")))
+    
+    # Initialize model
+    # try:
+
+    if params['bias_init'] == True:
+        datapoints, _, _, _ = dataset.get_dataset()
+        # idx = random.sample(range(datapoints.size(0)), len(params['model']['hidden_layers']) + 1)
+        idx = torch.randint(datapoints.size(0), (len(params['model']['hidden_layers']) + 1,))
+        model._net.reset_parameters(datapoints=datapoints[idx])
+
+    # except KeyError:
+    #     pass
     # Choose opt
     opt, scheduler = get_optimizer(params['optim'], model)
 
@@ -114,11 +130,6 @@ def train(params={}, tune_search=False, dest_dir='.'):
     # if params['SWA']:
     #     from torchcontrib.optim import SWA
     #     opt = SWA(opt, swa_start=8000, swa_freq=5, swa_lr=1e-3)
-
-    # Load pretrained model
-    if params['model_restart']:
-        model.load_state_dict(torch.load(op.join(dest_dir, "models", params['model_restart'] + ".mdl")))
-        opt.load_state_dict(torch.load(op.join(dest_dir, "models", params['model_restart'] + ".opt")))
     
     # Prepare tensorboard logging
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
@@ -174,7 +185,6 @@ def train(params={}, tune_search=False, dest_dir='.'):
                 for l in loss_dict:
                     L[l] += loss_dict[l].data
                 L['loss'] += loss.data
-                # import ipdb; ipdb.set_trace()
                 model.projection('update')
 
         model.projection('epoch')

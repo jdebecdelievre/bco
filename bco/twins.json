@@ -2,7 +2,7 @@
     "model_restart": null, 
     "filename_suffix": "twins",
     
-    "model_type": "sqJ_classifier_w_derivative",
+    "model_type": "sqJ_hinge_classifier",
   
     "model":{
       "scalarize": "rbf1",
@@ -69,9 +69,11 @@
     "sdf_regularization_anchors":30,
     "fixed_regularization_anchors":false,
 
-    "grad_norm_regularizer": -1.0, 
+    "grad_norm_regularizer": 0.0, 
     "sdf_regularizer": -1,
-    "boundary_regularizer": -1.0
+    "boundary_regularizer": -1.0,
+
+    "bias_init":false
     
     
   }

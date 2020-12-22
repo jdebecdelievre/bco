@@ -5,9 +5,7 @@
   "model": {
       "scalarize": "rbf1",
       "hidden_layers": [
-          64,
-          64,
-          64
+        64,64,64
       ],
       "activation": "groupsort",
       "linear": {
@@ -74,7 +72,9 @@
   ],
   "sdf_regularization_anchors": 1000,
   "fixed_regularization_anchors": true,
-  "grad_norm_regularizer": -0.1,
+  "grad_norm_regularizer": 0.0,
   "sdf_regularizer": -0.1,
-  "boundary_regularizer": -0.1
+  "boundary_regularizer": -0.1,
+
+  "bias_init":false
 }

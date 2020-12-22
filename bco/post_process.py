@@ -223,11 +223,13 @@ def score_contours(model, test_dataset=None, single_level=None, save=None,
             Y = model.predict_sqJ(X)
         dY = grad(Y.sum(), [X], create_graph=False)[0]
         X.requires_grad = False
-        Y = torch.norm(dY, dim=1)
+        Y = torch.norm(dY, dim=1, keepdim=True)
+        # Y = torch.sigmoid(-Y * torch.norm(dY, dim=1, keepdim=True) / (1 - torch.norm(dY, dim=1, keepdim=True))).detach()
     Y = Y.reshape(x1.shape)
 
     f, a = plt.subplots(figsize=(5,4))
     if single_level is None:
+        c_ = a.contourf(x1, x2, (Y), levels=30, alpha=.5)
         c = a.contour(x1, x2, (Y), levels=30)
     else:
         c = a.contourf(x1, x2, (Y), levels=np.array([single_level, 1e10]))

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 def parse_coefs(params, device='cpu'):
     if params['model_type'] in ['sqJ_classifier_w_derivative', 'sqJ_orth_cert']:
-        return {k: torch.tensor(params[kp], device=device) for k, kp in \
+        return {k: F.relu(torch.tensor(params[kp], device=device)) for k, kp in \
                 zip(['gradient norm', 'sdf regularization', 'boundary regularization'], \
                     ["grad_norm_regularizer", "sdf_regularizer", "boundary_regularizer"]) if kp in params}
     else:
@@ -86,7 +86,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             
             # Projection of infeasible points (regression)
             _ifs_star.requires_grad = True
-            _o_ = model._net(_ifs_star) 
+            _o_ = model._net(_ifs_star, reuse=True) 
             _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
             
             loss_dict['J loss z*'] = _o_.abs().mean()
@@ -97,7 +97,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
         if _fs.size(0) > 0:
             # Feasible points (classification + grad norm reg)
             _fs.requires_grad = True
-            _o_ = model._net(_fs)
+            _o_ = model._net(_fs, reuse=True)
             _do_ = grad(_o_.sum(), [_fs], create_graph=True)[0]
             
             loss_dict['classification loss']= F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
@@ -141,17 +141,25 @@ def loss_calc(batch, anchors, model, params, coefs={}):
         loss_dict = {}
         if _ifs.size(0) > 0:
             # Infeasible points (regression)
-            _o_ = model._net(_ifs)
+            # _o_ = model._net(_ifs)
+            _o_, _do_ = model._net.get_value_and_gradient(_ifs)
             loss_dict['J loss'] = F.relu(_o - _o_).mean()
+            # loss_dict['inf_grd'] = (_do_.square().sum(1) - 1).square().mean()
             
             # Projection of infeasible points (regression)
-            _o_ = model._net(_ifs_star) 
+            # _o_ = model._net(_ifs_star) 
+            _o_, _do_ = model._net.get_value_and_gradient(_ifs_star)
             loss_dict['J loss z*'] = F.relu(_o_).mean()
+            # loss_dict['inf_star_grd'] = (_do_.square().sum(1) - 1).square().mean()
+
 
         if _fs.size(0) > 0:
             # Feasible points (classification + grad norm reg)
-            _o_ = model._net(_fs)
+            # _o_ = model._net(_fs)
+            _o_, _do_ = model._net.get_value_and_gradient(_fs)
             loss_dict['classification loss']= F.leaky_relu(_o_).mean()
+            # loss_dict['gradient norm'] = _do_.square().sum(dim=1)
+            # loss_dict['fs_star_grd'] = (_do_.square().sum(1) - 1).square().mean()
             
         # Regularization anchors
         # if anchors is not None:

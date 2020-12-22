@@ -36,18 +36,17 @@ class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
         super().__init__()
         self.offset = torch.nn.Parameter(torch.Tensor(1), requires_grad=True)
-        self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
+        # self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
         self.reset_parameters()
 
-
     def reset_parameters(self) -> None:
-        bound = 1 / sqrt(self.center.data.size(0))
-        self.center.data.uniform_(-bound, bound)
+        # bound = 1 / sqrt(self.center.data.size(0))
+        # self.center.data.uniform_(-bound, bound)
         # self.center.data = torch.zeros(self.center.data.size(0))
         self.offset.data = -torch.ones(1)
 
     def forward(self, input):
-        h = input - self.center
+        h = input
         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
         self.gdt = h / nrm
         return nrm - self.offset.square()
@@ -64,33 +63,43 @@ class RBFnet(torch.nn.Module):
         return out
 
     def apply_jacobian(self, x):
-        raise NotImplementedError
+        raise NotImplementedError("apply_jacobian not implemented for RBFnets, only for DistanceModule.")
 
 # Linear = torch.nn.Linear
 class Linear(torch.nn.Linear):
     def reset_parameters(self):
         torch.nn.init.orthogonal_(self.weight)
         if self.bias is not None:
-            # bound = 1 / sqrt(self.weight.size(1))
-            # self.bias.data.uniform_(-bound, bound)
-            # self.bias.data.uniform_(-.1, .1)
-            self.bias.data = torch.zeros(self.weight.size(0))
+            bound = 1 / sqrt(self.weight.size(0))
+            self.bias.data.uniform_(-bound, bound)
+            # self.bias.data.uniform_(-1, 1)/10
+            # self.bias.data = torch.zeros(self.weight.size(0))
+            # self.weight.requires_grad = False
 
     def apply_jacobian(self, x):
         return x @ self.weight
 
-# class Linear(torch.nn.Linear):
-#     def reset_parameters(self):
-#         super().reset_parameters()
-#         self.weight.data.div_(100.).add_(torch.eye(*self.weight.shape))
-#         self.bias.div(100.)
-
 class SequentialWithOptions(nn.Sequential):
+    def reset_parameters(self, datapoints=None):
+        if datapoints is None:
+            datapoints = torch.Tensor((len(self), self[0].weight.size(0)))
+            datapoints.uniform__(-1 ,1)
+
+        idx = iter(torch.randperm(datapoints.size(0)))
+        for i, m in enumerate(self):
+            if type(m) == Linear:
+                m.bias.data = - m.weight @ self[:i](datapoints[next(idx)].unsqueeze(0)+1e-10).squeeze()
+
+        # Case with DistanceModule as last layer
+        if type(self[-1]) == DistanceModule and type(self[-2]) == Linear:
+            self[-2].weight.data = torch.eye(self[-2].weight.size(0))
+            self[-2].weight.requires_grad = False
+
     def forward(self, input, freeze_sort=False, **kwargs):
         for module in self:
             if type(module) == BjorckLinear and hasattr(module, 'weight'):
                 input = module(input, **kwargs)
-            if type(module) == GroupSort:
+            elif type(module) == GroupSort:
                 input = module(input, freeze_sort)
             else:
                 input = module(input)
@@ -104,18 +113,21 @@ class SequentialWithOptions(nn.Sequential):
             w = self[-1].gdt
         elif type(self[-1]) == Linear:
             w = self[-1].weight.repeat(input.size(0),1)
+        elif type(self[-1]) == BjorckLinear:
+            w = self[-1].ortho_w.repeat(input.size(0),1)
         else:
             raise NotImplementedError
 
         # Apply Jacobian of all earlier layers
-        grad = self.jvp(w, from_layer=0, to_layer=-2)
+        grad = self[:-1].jvp(w)
         return out, grad
     
-    def jvp(self, w, from_layer=0, to_layer=-2):
+    def jvp(self, w):
+        if w.ndim == 1:
+            w = w.unsqueeze(0)
         L = len(self)
-        if to_layer==-2:
-            to_layer = L-2
-        for l in range(to_layer, from_layer-1, -1):
+        for l in range(L-1, -1, -1):
+            # import ipdb; ipdb.set_trace()
             w = self[l].apply_jacobian(w)
         return w
 
@@ -156,7 +168,7 @@ def get_linear(options):
         L = Linear
         if 'spectral_norm' in options and options['spectral_norm']:
             def L(*args, **kwargs):
-                return torch.nn.utils.spectral_norm(Linear(*args, **kwargs))
+                return torch.nn.utils.spectral_norm(Linear(*args, **kwargs), n_power_iterations=1)
         return L
     elif options['type'].lower() == 'nrm':
         return NrmLinear
@@ -210,19 +222,22 @@ def build_layers(model_params, output_size):
         if 'dropout' in model_params and model_params['dropout'] > 0:
             layers.append(torch.nn.Dropout(model_params['dropout']))
 
+    # import ipdb; ipdb.set_trace()
     model = SequentialWithOptions(*layers)
     
     if not scalarize:
         return model
         
     if 'linear' in scalarize:
-        model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], output_size))
+        model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], output_size, bias=False))
     elif 'rbf' in scalarize:
         rbf = int(scalarize.split('rbf')[-1])
         if rbf == 1:
-            model.add_module(str(len(model)), DistanceModule(layers[-2].out_features))
+            model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], hidden_layers[-1]))
+            model.add_module('rbf', DistanceModule(hidden_layers[-1]))
         else:
-            model.add_module(str(len(model)), RBFnet(rbf, layers[-2].out_features))
+            model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], hidden_layers[-1]))
+            model.add_module('rbf', RBFnet(rbf, hidden_layers[-1]))
     return model
 
 def scalarize(val):
