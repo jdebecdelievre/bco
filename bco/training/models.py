@@ -36,6 +36,7 @@ class DistanceModule(torch.nn.Module):
     def __init__(self, input_size):
         super().__init__()
         self.offset = torch.nn.Parameter(torch.Tensor(1), requires_grad=True)
+        self.direction = torch.nn.Parameter(2*(2 * torch.rand(1) >= 1)*1. - 1, requires_grad=False)
         # self.center = torch.nn.Parameter(torch.Tensor(input_size), requires_grad=True)
         self.reset_parameters()
 
@@ -49,7 +50,7 @@ class DistanceModule(torch.nn.Module):
         h = input
         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
         self.gdt = h / nrm
-        return nrm - self.offset.square()
+        return self.direction * nrm - self.offset.square()
 
 class RBFnet(torch.nn.Module):
     def __init__(self, n_centroids, input_features):
@@ -665,3 +666,9 @@ def classification_metrics(classes, true_classes, writer=None, e=None, prefix=''
         writer.add_scalar('f1', f1,e)
 
     return params
+
+
+if __name__ == '__main__':
+    for i in range(100):
+        a = DistanceModule(2)
+        print(a.direction)
