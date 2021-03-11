@@ -79,13 +79,13 @@ class BaseDataset():
             self.output_std = torch.ones(1)
 
         # batching
-        n_slices = np.maximum( (self.n_feasible + self.n_infeasible) // params['optim']['batch_size'], 1)
+        n_slices = np.maximum( np.maximum(self.n_feasible,  self.n_infeasible) // params['optim']['batch_size'], 1)
         fs_batch_size = max([1, round(self.n_feasible / n_slices)])
-        self.fs_slices = [(j * fs_batch_size, (j+1) * fs_batch_size) for j in range(n_slices)]
+        self.fs_slices = [(int(j * fs_batch_size), int((j+1) * fs_batch_size)) for j in range(n_slices)]
         self.fs_index = np.arange(fs.shape[0])
 
         ifs_batch_size = max([1, round(self.n_infeasible / n_slices)])
-        self.ifs_slices = [(j * ifs_batch_size, (j+1) * ifs_batch_size) for j in range(n_slices)]
+        self.ifs_slices = [(int(j * ifs_batch_size), int((j+1) * ifs_batch_size)) for j in range(n_slices)]
         self.ifs_index = np.arange(ifs.shape[0])
         
         self.n_slices = n_slices
@@ -113,6 +113,7 @@ class BaseDataset():
                 np.random.shuffle(self.ifs_index)
             fs, ifs, ifs_star, out, dout = self.tensors
             batches = []
+
             for s in range(self.n_slices):
                 sl = self.fs_slices[s]
                 isl = self.ifs_slices[s]
