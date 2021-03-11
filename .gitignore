@@ -8,6 +8,7 @@
 
 .ipynb_checkpoints
 *.egg-info*
+*.eggs
 
 *.aux
 *.fls	
@@ -17,3 +18,5 @@
 *.fls
 *latex*
 *.out
+
+*/Untitled*.ipynb

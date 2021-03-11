@@ -3,6 +3,8 @@ from bco.training.alig import AliG
 from lnets.optimizers.aggmo import AggMo
 import torch.optim.lr_scheduler as lr_scheduler
 from bco.training.adahessian import Adahessian
+from adabelief_pytorch import AdaBelief
+
 
 def get_optimizer(optim_params, model):
     # Optimizer
@@ -13,6 +15,11 @@ def get_optimizer(optim_params, model):
                             betas=(optim_params['momentum'], 0.999), 
                             eps=1e-08
         )
+
+    elif optim_params['optimizer'].lower() == 'adabelief':
+        opt = AdaBelief(model.parameters(), 
+            lr=optim_params['step_size'], eps=1e-16, betas=(0.9,0.999), 
+            weight_decouple = True, rectify = False)
 
     elif optim_params['optimizer'].lower() == 'sgd':
         opt = SGD(model.parameters(),
