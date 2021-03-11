@@ -186,12 +186,12 @@ def train(params={}, tune_search=False, dest_dir='.'):
                     L[l] += loss_dict[l].data
                 L['loss'] += loss.data
                 model.projection('update')
-
+                
         model.projection('epoch')
 
         # LR scheduler
         if scheduler is not None:
-            scheduler.step(loss)
+            scheduler.step(L['loss'])
             LR = torch.tensor([group['lr'] for group in opt.param_groups]).mean()
             train_writer.add_scalar('learning_rate', LR, e)
             if LR < 1e-7:

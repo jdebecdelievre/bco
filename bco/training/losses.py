@@ -7,8 +7,8 @@ import torch.nn.functional as F
 def parse_coefs(params, device='cpu'):
     if params['model_type'] in ['sqJ_classifier_w_derivative', 'sqJ_orth_cert']:
         return {k: F.relu(torch.tensor(params[kp], device=device)) for k, kp in \
-                zip(['gradient norm', 'sdf regularization', 'boundary regularization'], \
-                    ["grad_norm_regularizer", "sdf_regularizer", "boundary_regularizer"]) if kp in params}
+                zip(['gradient norm', 'sdf regularization', 'boundary regularization', 'gradient', 'gradient'], \
+                    ["grad_norm_regularizer", "sdf_regularizer", "boundary_regularizer", 'dJ loss', 'dJ loss z*']) if kp in params}
     else:
         return {}
 
@@ -81,7 +81,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
 
             loss_dict['J loss'] = (_o - _o_).abs().mean()
-            loss_dict['dJ loss'] = (_do - _do_).abs().sum(1, keepdim=True).mean()
+            loss_dict['dJ loss'] = _o.T @ ((_do - _do_).abs().mean(1, keepdim=True)) / _ifs.shape[0]
             # djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs, _o_, _do_, model)
             
@@ -91,7 +91,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
             
             loss_dict['J loss z*'] = _o_.abs().mean()
-            loss_dict['dJ loss z*'] = (_do - _do_).abs().sum(1, keepdim=True).mean()
+            loss_dict['dJ loss z*'] = _o.T @ ((_do - _do_).abs().mean(1, keepdim=True)) / _ifs.shape[0]
             # djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs_star, _o_, _do_, model)
 
@@ -134,7 +134,6 @@ def loss_calc(batch, anchors, model, params, coefs={}):
                     for j in range(_ifs.size(1)):
                         boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
                 loss_dict['boundary_regularizer'] = boundary_reg
-
         loss = combine_losses(loss_dict, coefs)
         return loss, loss_dict
 
