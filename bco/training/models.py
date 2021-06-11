@@ -50,7 +50,7 @@ class DistanceModule(torch.nn.Module):
         h = input
         nrm = torch.norm(h, p=2, dim=1, keepdim=True)
         self.gdt = h / nrm
-        return self.direction * nrm - self.offset.square()
+        return self.direction * (nrm - self.offset.square())
 
 class RBFnet(torch.nn.Module):
     def __init__(self, n_centroids, input_features):
