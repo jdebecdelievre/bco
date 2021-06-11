@@ -132,7 +132,6 @@ def compute_Jloss(filename, content, plot_contours=True):
         sl = 0. if 'tol_opt' not in content else content['tol_opt']
         f = score_contours(model, dataset, single_level=sl, save=filename + 'decision_boundary', bounds=bounds)
         plt.close()
-
         f = loss_map(model, dataset, filename+'_lossmap', bounds=bounds)
         plt.close()
 
@@ -166,14 +165,16 @@ def loss_map(model, test_dataset, save, bounds=None):
     
     # Feasible points
     a.scatter(fs[:,0], fs[:,1], s=20., c='green', marker='+')
-    cls = model.classify(fs)
-    a.scatter(fs[:,0], fs[:,1], s=20., c=cls, marker='o')
+    if fs.shape[0] > 0:
+        cls = model.classify(fs)
+        a.scatter(fs[:,0], fs[:,1], s=20., c=cls, marker='o')
     
     for i in range(ifs.size(0)):
         a.plot([ifs[i,0], ifs_star[i,0]], [ifs[i,1], ifs_star[i,1]], '--+r')
 
     # Infeasible points
     ifs.requires_grad = True
+    
     _o_ = model._net(ifs)
     jpred = (out - _o_).abs().detach()
     ifs.requires_grad = False

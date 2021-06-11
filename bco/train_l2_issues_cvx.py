@@ -13,16 +13,15 @@ from torch.autograd import grad
 from bco.training.datasets import process_data
 from itertools import combinations
 
-def net(X, u0, u1, u2, abs_act=False):
+def net(X, u1, u2, abs_act=False):
     sc1 = (X @ u1[:-1]) + u1[-1]
     sc2 = (X @ u2[:-1]) + u2[-1]
     id1 = torch.sign(sc1) if abs_act else sc1.gt(0)*1.
     id2 = torch.sign(sc2) if abs_act else sc2.gt(0)*1.
-    return (X @ u0[:-1]) + u0[-1] + (id1 * sc1).sum(1, keepdims=True) - (id2 * sc2).sum(1, keepdims=True)
+    return (id1 * sc1).sum(1, keepdims=True) - (id2 * sc2).sum(1, keepdims=True)
 
 def random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=False):
     d = X_f.shape[1]
-
     W = 2*torch.randn((M, d)) - 1
     if fuse_xxstar:
         D_i = torch.sign((torch.tensor(X_i) @ W.T))
@@ -95,7 +94,7 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
     X_i = np.append(X_i,np.ones((n_i,1)),axis=1)
     X_s = np.append(X_s,np.ones((n_i,1)),axis=1)
     d += 1
-    # Y_i = np.atleast_1d(Y_i.squeeze())
+    Y_i = np.atleast_1d(Y_i.squeeze())
 
     dual_norm = np.inf if norm==1 else int(1/(1-1/float(norm)))
 
@@ -109,7 +108,6 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
     print(f'Dmat creation: {time.time()-t0}s, {m1} arrangements identified.')
 
     # Optimal CVX
-    Uopt0=cp.Variable((d,1), value=np.random.randn(d,1))
     Uopt1=cp.Variable((d,m1), value=np.random.randn(d,m1))
     Uopt2=cp.Variable((d,m1), value=np.random.randn(d,m1))
     constraints = []
@@ -119,22 +117,15 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
     if n_f > 0:
         ux_f_1 = cp.multiply(D_f,(X_f @ Uopt1))
         ux_f_2 = cp.multiply(D_f,(X_f @ Uopt2))
-        if abs_act:
-            y_f = X_f @ Uopt0 + cp.sum(ux_f_1 - ux_f_2,axis=1, keepdims=True)
-            deriv_f = D_f @ (Uopt1 - Uopt2).T + Uopt0.T
-        else:
-            y_f = X_f @ Uopt0 + cp.sum(cp.multiply((D_f+1)/2,(X_f @ (Uopt1 - Uopt2))),axis=1, keepdims=True)
-            deriv_f = ((D_f+1)/2) @ (Uopt1 - Uopt2).T + Uopt0.T
-
+        y_f = cp.sum(ux_f_1 - ux_f_2,axis=1) if abs_act \
+                 else cp.sum(cp.multiply((D_f+1)/2,(X_f @ (Uopt1 - Uopt2))),axis=1)
         constraints += [
-                        ux_f_1 >= 0,
-                        ux_f_2 >= 0,
-                        ux_f_1 >= 0,
-                        ux_f_2 >= 0
-                        ]
+        ux_f_1>=0,
+        ux_f_2>=0
+        ]
 
-        Y_f_lb = np.max(Y_i[:, None] - np.linalg.norm(X_f[None, :, :] - X_i[:, None, :], axis=-1, ord=norm), axis=0)
-
+        Y_f_lb = np.max(Y_i[:, None] - np.linalg.norm(X_f[None, :, :] - X_i[:, None, :], axis=-1, 
+                                    ord=dual_norm), axis=0)
         if sdf:
             loss_f = cp.sum(cp.abs(y_f - Y_f_lb))
         else:
@@ -153,15 +144,21 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
         ux_s_2 = cp.multiply(D_s,(X_s @ Uopt2))
     
         if abs_act:
-            y_i = X_i @ Uopt0 + cp.sum(ux_i_1 - ux_i_2,axis=1, keepdims=True)
-            y_s = X_s @ Uopt0 + cp.sum(ux_s_1 - ux_s_2,axis=1, keepdims=True)
-            deriv_i = D_i @ (Uopt1 - Uopt2).T + Uopt0.T
-            deriv_s = D_s @ (Uopt1 - Uopt2).T + Uopt0.T
+            y_i = cp.sum(ux_i_1 - ux_i_2,axis=1)
+            y_s = cp.sum(ux_s_1 - ux_s_2,axis=1)
+            if sdf:
+                if norm == 2:
+                    constraints += [cp.sum(cp.square((Uopt1[:2] - Uopt2[:2]) @ D_i.T), axis=0) <= 1]
+                elif norm == 1:
+                    constraints += [cp.max(cp.abs((Uopt1[:2] - Uopt2[:2]) @ D_i.T), axis=0) <= 1]
         else:
-            y_i = X_i @ Uopt0 + cp.sum(cp.multiply((D_i+1)/2,(X_i @ (Uopt1 - Uopt2))),axis=1, keepdims=True)
-            y_s = X_s @ Uopt0 + cp.sum(cp.multiply((D_s+1)/2,(X_s @ (Uopt1 - Uopt2))),axis=1, keepdims=True)
-            deriv_i = ((D_i+1)/2) @ (Uopt1 - Uopt2).T + Uopt0.T
-            deriv_s = ((D_s+1)/2) @ (Uopt1 - Uopt2).T + Uopt0.T
+            y_i = cp.sum(cp.multiply((D_i+1)/2,(X_i @ (Uopt1 - Uopt2))),axis=1)
+            y_s = cp.sum(cp.multiply((D_s+1)/2,(X_s @ (Uopt1 - Uopt2))),axis=1)
+            if sdf:
+                if norm == 2:
+                    constraints += [cp.sum(cp.square((Uopt1[:2] - Uopt2[:2]) @ ((D_i+1)/2).T), axis=0) <= 1]
+                elif norm == 1:
+                    constraints += [cp.max(cp.abs((Uopt1[:2] - Uopt2[:2]) @ ((D_i+1)/2).T), axis=0) <= 1]
 
         constraints += [
             ux_i_1>=0,
@@ -169,7 +166,6 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
             ux_i_2>=0,
             ux_s_2>=0,
         ]
-
         loss_i = cp.sum(cp.abs(Y_i - y_i))
         loss_s = cp.sum(cp.abs(y_s))
         loss = loss + loss_i + loss_s
@@ -181,21 +177,19 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
         lipsh_s = cp.Variable(value=0.)
 
     # Regularization
-    groupnorm_reg = cp.norm(Uopt0) + cp.mixed_norm(Uopt1.T,2,1) + cp.mixed_norm(Uopt2.T,2,1)
     if norm == 2:
-        reg_nrm = cp.norm(Uopt0[:-1]) + cp.mixed_norm(Uopt1[:-1].T,2,1) + cp.mixed_norm(Uopt2[:-1].T,2,1)
+        reg = cp.mixed_norm(Uopt1[:-1].T,2,1) + cp.mixed_norm(Uopt2[:-1].T,2,1)
     elif norm == 1:
-        reg_nrm = cp.Variable(nonneg=True)
+        reg = cp.Variable(nonneg=True)
         for i in range(d-1):
             for s in [-1,1]:
-                constraints += [cp.sum(cp.pos(Uopt1[i] * s) + cp.pos(-Uopt2[i] * s)) <= reg_nrm]
-    reg = reg_nrm + groupnorm_reg / 100.
+                constraints += [cp.sum(cp.pos(Uopt1[i] * s) + cp.pos(-Uopt2[i] * s)) <= reg]
 
     # Solution
     prob=cp.Problem(cp.Minimize(100*(loss + beta * reg)),constraints)
     t0 = time.time()
-    options = {}#dict(mosek_params = {'MSK_DPAR_BASIS_TOL_X':1e-8})
-    prob.solve(verbose=True, **options)
+    options = dict(mosek_params = {'MSK_DPAR_BASIS_TOL_X':1e-8})
+    prob.solve(solver=cp.MOSEK, verbose=True, **options)
     # prob.solve(solver=cp.SCS)
 
     print(f'Status: {prob.status}, \n '
@@ -210,8 +204,10 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
     if prob.status.lower() == 'infeasible':
         st()
         return None
-    u0, u1, u2 = torch.tensor(Uopt0.value), torch.tensor(Uopt1.value), torch.tensor(Uopt2.value)
-    return u0, u1, u2
+    u1, u2 = torch.tensor(Uopt1.value), torch.tensor(Uopt2.value)
+    st()
+
+    return u1, u2
 
 def minimize(h, U, upper, lower, M=100):
     d = u.shape[0] - 1
@@ -278,30 +274,27 @@ def plot_hyperplanes(X_f, X_i, X_s, h=None, M=None, show=True):
     if show:
         plt.show()
 
-def plot_model(X_f, X_i, X_s, u0, u1, u2, hyperplanes=True, x_star=None, abs_act=False, show=True, norm=2):
+def plot_model(X_f, X_i, X_s, u1, u2, hyperplanes=True, x_star=None, abs_act=False, show=True, norm=2):
     x1, x2 = torch.meshgrid(torch.linspace(-1,1,100), torch.linspace(-1,1,100))
     x = torch.stack((x1.flatten(), x2.flatten())).T
     f, ax = plt.subplots(1, 2, figsize=(10,5))
-
-    levels = np.linspace(-1,1.5,26)
     
     a = ax[0]
     da = ax[1]
     dual_norm = '\\infinity' if norm==1 else int(1/(1-1/float(norm)))
     if u1 is not None and u2 is not None:
         x.requires_grad = True
-        st()
-        y = torch.reshape(net(x, u0, u1, u2, abs_act=abs_act), x1.shape)
+        y = torch.reshape(net(x, u1, u2, abs_act=abs_act), x1.shape)
         if type(dual_norm) == str and dual_norm == '\\infinity':
             dy = (grad(y.sum(), [x])[0]).max(dim=1)[0]
         else:
             dy = (grad(y.sum(), [x])[0]).norm(dual_norm, dim=1)
         dy = torch.reshape(dy, x1.shape)
         y, dy = y.detach(), dy.detach()
-        c_ = a.contourf(x1, x2, (y), levels=levels, alpha=.5)
-        c = a.contour(x1, x2, (y), levels=levels)
+        c_ = a.contourf(x1, x2, (y), levels=30, alpha=.5)
+        c = a.contour(x1, x2, (y), levels=30)
+        a.contour(x1, x2, (y), levels=[-10, 0, 10], colors='k')
         co = f.colorbar(c, ax=a)
-        c.collections[10].set_color('black')
         co.set_label('$score$', rotation=90)
 
         c_ = da.contourf(x1, x2, (dy), levels=30, alpha=.5)
@@ -395,6 +388,7 @@ def train_cvx(filename, input_variables, M=20000, abs_act=False, tol=1e-8, beta=
 
     if loss >= 1e-6:
         if nesting <= 5:
+            st()
             print(f"Loss is too high when training on {filename}. Increasing M, lower beta, and retrying.")
             return train_cvx(filename, input_variables, M=2*M, beta=beta/2, abs_act=abs_act, tol=tol, nesting=nesting+1)
         else:
@@ -409,29 +403,32 @@ if __name__ == "__main__":
     # data_file = 'data/multio_50/multio_2d_n4.csv'
     # xcols = ['x0', 'x1']
 
-    data = pd.read_csv(data_file)
-    classes = data.classes
-    data_f = data[classes == 1]
-    X_f = data_f[xcols].values / 2
-    data_i = data[classes == 0]
-    X_i = data_i[xcols].values / 2
-    X_s = data_i[[x + '_star' for x in xcols]].values / 2
-    Y_i = data_i[['sqJ']].values / 2
+    # data = pd.read_csv(data_file)
+    # classes = data.classes
+    # data_f = data[classes == 1]
+    # X_f = data_f[xcols].values / 2
+    # data_i = data[classes == 0]
+    # X_i = data_i[xcols].values / 2
+    # X_s = data_i[[x + '_star' for x in xcols]].values / 2
+    # Y_i = data_i['sqJ'].values / 2
     
-    abs_act = True
+    abs_act = False
     norm=2
 
-    # torch.manual_seed(2)
-    # from data.trivial_shapes import square, pacman, square_sdf
-    # X_f, X_i, X_s, Y_i = square(15, norm=norm)
-    # X_f, X_i, X_s, Y_i = square_sdf(20, norm=norm)
-    # plt.scatter(X_i[:,0], X_i[:,1], c=Y_i, s=1)
-    # plt.show()
-    u0, u1, u2 = train_network(X_f, X_i, X_s, Y_i, abs_act=abs_act, 
-                        fuse_xxstar=False, beta=1e-4, M=int(1e6), sdf=True, norm=norm)
+    torch.manual_seed(2)
+    from data.trivial_shapes import square, pacman
+    X_f, X_i, X_s, Y_i = square(6, norm=norm)
+
+    X_f = X_f[:0]
+    X_i = X_i[:2]
+    X_s = X_s[:2]
+    Y_i = Y_i[:2]
+    st()
+    u1, u2 = train_network(X_f, X_i, X_s, Y_i, abs_act=abs_act, 
+                        fuse_xxstar=False, beta=1e-3, M=int(1e5), sdf=True, norm=norm)
     # u1 = u1[:, u1.norm(dim=0)>1e-6]
     # u2 = u2[:, u2.norm(dim=0)>1e-6]
 
-    f = plot_model(X_f, X_i, X_s, u0, u1, u2, hyperplanes=False,  abs_act=abs_act, show=False, norm=norm)
+    f = plot_model(X_f, X_i, X_s, u1, u2, hyperplanes=False,  abs_act=abs_act, show=False, norm=norm)
     plt.show()
     f.savefig('f2d_beta_abs_fuse_xxstar.pdf', bbox_inches='tight')

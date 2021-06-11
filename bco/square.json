@@ -1,0 +1,80 @@
+{
+    "model_restart": null, 
+    "filename_suffix": "square",
+    
+    "model_type": "sqJ_classifier_w_derivative",
+  
+    "model":{
+      "scalarize": "linear",
+        "hidden_layers": [2,2,2,2],
+        "activation": "groupsort",
+        "linear": {
+            "type": "linear",
+            "safe_scaling": true,
+            "bjorck_beta": 0.5,
+            "bjorck_iter": 10,
+            "bjorck_order": 1,
+            "bias": true,
+            "spectral_norm":true
+        },
+        "per_epoch_proj": {
+          "turned_on": false,
+          "bjorck_beta": 0.5,
+          "bjorck_iter": 20,
+          "bjorck_order": 1,
+          "safe_scaling": true,
+          "reset_optimizer": false
+        },
+        "per_update_proj": {
+          "turned_on": false,
+          "bjorck_beta": 0.5,
+          "bjorck_iter": 2,
+          "bjorck_order": 1,
+          "safe_scaling": false
+        }
+    },
+  
+    "optim": {
+      "optimizer": "adabelief",
+      "lr_scheduler": {
+        "name": "plateau",
+        "patience":2000,
+        "factor":0.5
+      },
+      "momentum": 0.9,
+      "weight_decay": 0.0,
+      "max_grad_norm": 10000,
+      "step_size": 0.005,
+      "batch_size": 50
+    },
+    "epochs":50000, 
+    
+    
+    "early_stopping":null,
+    
+    "seed": 123,
+    
+    "filename": "data/square.csv",
+    "test_filename": "data/square.csv",
+    "input_regex": "^x\\d+$",
+    "normalize_input":false,
+    "normalize_output":false,
+    
+    "logging":{
+      "test":100,
+      "train":50
+    },
+    
+    "bounds": [[-1,-1], [1,1]],
+    "sdf_regularization_anchors":30,
+    "fixed_regularization_anchors":false,
+
+    "grad_norm_regularizer": 0.0, 
+    "sdf_regularizer": -1,
+    "boundary_regularizer": -1.0,
+
+    "bias_init":false
+    
+    
+  }
+  
