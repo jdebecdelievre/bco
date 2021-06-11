@@ -181,6 +181,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
             else:
                 loss.backward()
                 opt.step(lambda: float(loss))
+            # import ipdb; ipdb.set_trace()
             with torch.no_grad():
                 for l in loss_dict:
                     L[l] += loss_dict[l].data

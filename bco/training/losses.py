@@ -81,7 +81,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
 
             loss_dict['J loss'] = (_o - _o_).abs().mean()
-            loss_dict['dJ loss'] = _o.T @ ((_do - _do_).abs().mean(1, keepdim=True)) / _ifs.shape[0]
+            loss_dict['dJ loss'] = (_o.T * ((_do - _do_).abs().mean(1, keepdim=True))).sum() / _ifs.shape[0]
             # djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs, _o_, _do_, model)
             
@@ -91,7 +91,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
             
             loss_dict['J loss z*'] = _o_.abs().mean()
-            loss_dict['dJ loss z*'] = _o.T @ ((_do - _do_).abs().mean(1, keepdim=True)) / _ifs.shape[0]
+            loss_dict['dJ loss z*'] = (_o.T * ((_do - _do_).abs().mean(1, keepdim=True))).sum() / _ifs.shape[0]
             # djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs_star, _o_, _do_, model)
 
@@ -101,7 +101,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _o_ = model._net(_fs, reuse=True)
             _do_ = grad(_o_.sum(), [_fs], create_graph=True)[0]
             
-            loss_dict['classification loss']= F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar and derivatives
+            loss_dict['classification loss']= F.relu(_o_).mean() * (2 * (fs.size(1) + 1))# 2x(dim+1) to account for xStar
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_fs, _o_, _do_, model)
 
         # Regularization anchors
@@ -135,6 +135,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
                         boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
                 loss_dict['boundary_regularizer'] = boundary_reg
         loss = combine_losses(loss_dict, coefs)
+        # import ipdb; ipdb.set_trace()
         return loss, loss_dict
 
     elif params['model_type'] == 'sqJ_hinge_classifier':
@@ -162,6 +163,8 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             # loss_dict['fs_star_grd'] = (_do_.square().sum(1) - 1).square().mean()
             
         loss = combine_losses(loss_dict, coefs)
+        
+
         return loss, loss_dict
 
     else: 

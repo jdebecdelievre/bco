@@ -3,9 +3,9 @@
   "filename_suffix": "multio",
   "model_type": "sqJ_hinge_classifier",
   "model": {
-      "scalarize": "rbf1",
+      "scalarize": "linear",
       "hidden_layers": [
-        64,64,64
+        20,20,20,20,20
       ],
       "activation": "groupsort",
       "linear": {
@@ -45,10 +45,10 @@
       "momentum": 0.9,
       "weight_decay": 0.0,
       "max_grad_norm": 10000,
-      "step_size": 0.005,
-      "batch_size": 300
+      "step_size": 0.01,
+      "n_batch": 3
   },
-  "epochs": 20000,
+  "epochs": 50000,
   "early_stopping": null,
   "seed": null,
   "filename": "data/multio_50/multio_2d_n0.csv",
@@ -57,8 +57,8 @@
   "normalize_input": false,
   "normalize_output": false,
   "logging": {
-      "test": 100,
-      "train": 50
+      "test": 50,
+      "train": 10
   },
   "bounds": [
       [
