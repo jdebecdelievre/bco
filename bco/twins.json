@@ -5,8 +5,8 @@
     "model_type": "sqJ_hinge_classifier",
   
     "model":{
-      "scalarize": "rbf1",
-        "hidden_layers": [12,12],
+      "scalarize": "linear",
+        "hidden_layers": [20,20,20,20],
         "activation": "groupsort",
         "linear": {
             "type": "linear",
@@ -45,7 +45,7 @@
       "weight_decay": 0.0,
       "max_grad_norm": 10000,
       "step_size": 0.005,
-      "batch_size": 50
+      "n_batch": 10
     },
     "epochs":50000, 
     

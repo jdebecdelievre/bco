@@ -230,7 +230,7 @@ def build_layers(model_params, output_size):
         return model
         
     if 'linear' in scalarize:
-        model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], output_size, bias=False))
+        model.add_module(str(len(model)),linear_layers[-1](hidden_layers[-1], output_size))
     elif 'rbf' in scalarize:
         rbf = int(scalarize.split('rbf')[-1])
         if rbf == 1:
