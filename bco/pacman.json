@@ -1,0 +1,80 @@
+{
+    "model_restart": null,
+    "filename_suffix": "multio",
+    "model_type": "sqJ_classifier_w_derivative",
+    "model": {
+        "scalarize": "linear",
+        "hidden_layers": [
+          16,16,16
+        ],
+        "activation": "groupsort",
+        "linear": {
+            "type": "linear",
+            "safe_scaling": true,
+            "bjorck_beta": 0.5,
+            "bjorck_iter": 15,
+            "bjorck_order": 1, 
+            "bias": true,
+            "spectral_norm": true
+        },
+        "dropout": -1.0,
+        "per_epoch_proj": {
+            "turned_on": false,
+            "bjorck_beta": 0.5,
+            "bjorck_iter": 20,
+            "bjorck_order": 1,
+            "safe_scaling": true,
+            "reset_optimizer": false
+        },
+        "per_update_proj": {
+            "turned_on": false,
+            "bjorck_beta": 0.5,
+            "bjorck_iter": 3,
+            "bjorck_order": 1,
+            "safe_scaling": true
+        },
+        "input_size": 2
+    },
+    "optim": {
+        "optimizer": "adam",
+        "lr_scheduler": {
+            "name": "plateau",
+            "patience": 500,
+            "factor": 0.3
+        },
+        "momentum": 0.9,
+        "weight_decay": 0.0,
+        "max_grad_norm": 10000,
+        "step_size": 0.01,
+        "n_batch": 3
+    },
+    "epochs": 50000,
+    "early_stopping": null,
+    "seed": null,
+    "filename": "data/pacman/pacman_10_n0.csv",
+    "test_filename": "data/pacman/test_pacman.csv",
+    "input_regex": "^x\\d+$",
+    "normalize_input": false,
+    "normalize_output": false,
+    "logging": {
+        "test": 50,
+        "train": 10
+    },
+    "bounds": [
+        [
+            -3,
+            -3
+        ],
+        [
+            3,
+            3
+        ]
+    ],
+    "sdf_regularization_anchors": 1000,
+    "fixed_regularization_anchors": true,
+    "grad_norm_regularizer": 0.1,
+    "sdf_regularizer": -0.1,
+    "boundary_regularizer": -0.1,
+  
+    "bias_init":false
+  }
