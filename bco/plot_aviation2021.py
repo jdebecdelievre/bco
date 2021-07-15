@@ -16,91 +16,6 @@ RED = '\033[91m'
 ENDCOL = '\033[0m'
 
 
-def apply(fn, last=False):
-    files = [f[:-5] for f in os.listdir('.') if f.endswith('.json') and 'sqrt' not in f]
-    files.sort(key=lambda f: os.path.getctime(f+'.json'))
-    if last:
-        files = [files[-1]]
-    for f in files:
-
-        try:
-            with open(f + '.json', 'r') as ff:
-                content = json.load(ff)
-        except:
-            print("Failed opening ", f)
-            continue
-
-        content, delete = fn(f, content)
-
-        if delete:
-            pass
-            remove(f)
-        else:
-            with open(f + '.json', 'w') as ff:
-                json.dump(content, ff, indent=4)
-    return 
-
-
-def remove(f):
-    files = os.listdir('.')
-
-    for f_ in filter(lambda x: re.match(f+'.+', x), files):
-        try:
-            os.remove(f_)
-            # print(f_)
-        except OSError:
-            print('Error removing ' + f+'.json')
-            pass
-    
-
-def filter_test(filename, content):
-    if ('loss' not in content):
-        print(f'Removing {filename}: no loss recorded')
-        return content, True
-    if 'epochs' in content and content['epochs'] < 1000:
-        print(f'Removing {filename}: Only {content["epochs"]} epochs')
-        return content, True
-    return content, False
-
-
-def correct_train_data_size(filename, content):
-    if 'twins' in filename:
-        casename = 'twins'
-    elif 'disk' in filename:
-        casename = 'disk'
-    content['train_set_size'] = int(re.findall(r'%s(\d+)' % (casename +'_'), filename)[0])
-    return content, False
-
-def evaluate(filename, content):
-    N = 500
-    model = build_model(content)
-    try:
-        model.load_state_dict(torch.load(filename+'.mdl'))
-    except RuntimeError:
-        return content, False
-    model.eval()
-
-    bounds = [[-2,-2], [2,2]] if 'bounds' not in content else content['bounds']
-    x1, x2 = torch.meshgrid(torch.linspace(bounds[0][0], bounds[1][0], N),
-                            torch.linspace(bounds[0][1], bounds[1][1], N))
-    X = torch.stack((x1.flatten(), x2.flatten())).T
-    X.requires_grad = True
-    if X.grad is not None:
-        X.grad.detach_()
-        X.grad.zero_()
-    if not hasattr(model, 'output_mean') or model.output_mean.shape[0] == 1:
-        Y = model(X)
-    elif model.output_mean.shape[0] > 1 :
-        Y = model.predict_sqJ(X)
-    dY = grad(Y.sum(), [X], create_graph=False)[0]
-    dY_norm = torch.norm(dY, dim=1, keepdim=True).reshape(x1.shape).detach().numpy()
-    X.requires_grad = False
-    X = X.reshape((x1.shape[0], x1.shape[1],2)).detach().numpy()
-    dY = dY.reshape((x1.shape[0], x1.shape[1],2)).detach().numpy()
-    Y = Y.reshape(x1.shape).detach().numpy()
-    dat={'sqJ':Y, 'dsqJ':dY, 'X':X, 'nrm':dY_norm}
-    np.save(filename + "data.npy", dat)
-    return content, False
 
 def compute_Jloss(filename, content, plot_contours=True):
     if 'Jloss' in content and 'dJloss' in content and 'test_accuracy' in content:
@@ -165,26 +80,6 @@ def compute_Jloss(filename, content, plot_contours=True):
         f = loss_map(model, dataset, filename+'_lossmap', bounds=bounds)
         plt.close()
 
-    if content['model_type'] == 'sqJ_orth_cert':
-        x1, x2 = torch.meshgrid(torch.linspace(-2,2), torch.linspace(-2,2))
-        X = torch.stack((x1.flatten(), x2.flatten())).T
-        with torch.no_grad():
-            Y = model._net.certificate(X)
-            Y = Y.norm(dim=1)
-            Y = Y.reshape(x1.shape)
-        f, a = plt.subplots(figsize=(5,4))
-        c = a.contourf(x1, x2, (Y), levels=30)
-        a.axis('equal')
-        inp, out, _, cls = dataset.get_dataset()
-        a.scatter(inp[:,0], inp[:,1], s=10., c=-cls[:,0], marker='+')
-        try:
-            co = f.colorbar(c, ax=a)
-            co.set_label('$UQ$', rotation=90)
-        except:
-            pass
-        a.spines['top'].set_visible(False)
-        a.spines['right'].set_visible(False)
-        f.savefig(filename + 'UQ.pdf', bbox_inches='tight')
     return content, False
 
 def loss_map(model, test_dataset, save, bounds=None):
@@ -366,7 +261,7 @@ def accuracy_plot(folders, labels=None):
 
 parser = argparse.ArgumentParser(description='PostProc Options')
 parser.add_argument('action', metavar='N', type=str,
-                    help='action to perform', choices=['jloss', 'extractdf', 'acc', 'eval'])
+                    help='action to perform', choices=['jloss', 'extractdf', 'acc'])
 parser.add_argument('-l', '--last', action='store_true')
 
 
@@ -384,10 +279,6 @@ if __name__ == "__main__":
     # Compute Jloss
     if args.action == 'jloss':
         apply(compute_Jloss, last = args.last)
-
-    # Evaluate Model on X grid
-    if args.action == 'eval':
-        apply(evaluate)
 
     # Extract pd
     if args.action == 'extractdf':
