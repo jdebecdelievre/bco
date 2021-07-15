@@ -15,9 +15,9 @@ class GroupSort(torch.nn.Module):
         n, m = x.shape
         if not freeze_sort:
             group_sorted, indices = group_sort(x, self.num_units, self.axis)
-            assert check_group_sorted(group_sorted, self.num_units, axis=self.axis) == 1, "GroupSort failed. "
-            self.indices = indices
-            self.indices_t = get_transpose_indices(indices)
+            # assert check_group_sorted(group_sorted, self.num_units, axis=self.axis) == 1, "GroupSort failed. "
+            # self.indices = indices
+            # self.indices_t = get_transpose_indices(indices)
         else:
             if self.num_units > 1:
                 raise NotImplementedError("freeze_sort not tested groupsort (only for fullsort)")
