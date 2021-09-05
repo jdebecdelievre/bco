@@ -34,6 +34,8 @@ from datetime import datetime
 
 import torch.autograd.profiler as profiler
 
+device = 'cpu'
+
 def get_params_grad(model):
     """
     get model parameters and corresponding gradients
@@ -86,7 +88,7 @@ def process_params(params, dest_dir):
         assert params['model']['linear'] != 'bjorck', "Bjorck layers incompatible with data normalization"
     return params
 
-def train(params={}, tune_search=False, dest_dir='.'):
+def train(params={}, tune_search=False, dest_dir='.', notqdm=False):
     # Process params
     params = process_params(params, dest_dir)
 
@@ -97,6 +99,8 @@ def train(params={}, tune_search=False, dest_dir='.'):
     dataset, test_dataset = build_dataset(params)
     params['model']['input_size'] = dataset.tensors[0].shape[-1]
     params['train_set_size'] = dataset.n_feasible + dataset.n_infeasible
+    dataset.to(device)
+    test_dataset.to(device)
 
     # Build model
     model = build_model(params)
@@ -106,6 +110,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
     if params['normalize_output']:
         model.output_mean.data = dataset.output_mean.data*0.
         model.output_std.data = dataset.output_std.data
+    model.to(device)
 
     # Load pretrained model
     if params['model_restart']:
@@ -151,14 +156,13 @@ def train(params={}, tune_search=False, dest_dir='.'):
         stop = EarlyStopping(patience=params['early_stopping'],  mode='min')
 
     # Device
-    device = 'cpu'
     coefs = parse_coefs(params, device)
 
     # Train
     model.train()
     f1_score = -5
     stop_here = False
-    if tune_search:
+    if tune_search or notqdm:
         iterator = range(params["epochs"])
     else:
         print('Training', basename)
@@ -206,6 +210,7 @@ def train(params={}, tune_search=False, dest_dir='.'):
 
         if e%params['logging']['train'] ==0 or stop_here:
             # Write loss to params
+            
             logs = {}
             logs['loss'] = scalarize(L['loss'])
             for l in L:
@@ -214,10 +219,11 @@ def train(params={}, tune_search=False, dest_dir='.'):
             # Save train metrics
             model.eval()
             with torch.no_grad():
-                input, output, _, classes = dataset.get_dataset()
-                logs.update(model.metrics(input, output, classes, train_writer, e, 'train_'))
-                if tune_search:
-                    tune.report(**logs)
+                if 'cuda' not in device:
+                    input, output, _, classes = dataset.get_dataset()
+                    logs.update(model.metrics(input, output, classes, train_writer, e, 'train_'))
+                    if tune_search:
+                        tune.report(**logs)
                 
                 train_writer.add_scalar('loss/loss', L['loss'], e)
                 for l in L:
@@ -234,20 +240,21 @@ def train(params={}, tune_search=False, dest_dir='.'):
 
             # Save test metrics
             model.eval()
-            with torch.no_grad():
-                test_input, test_output, _, test_classes = test_dataset.get_dataset()
-                logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
-            if tune_search:
-                tune.report(**logs)
-            params.update(logs)
+            if 'cuda' not in device:
+                with torch.no_grad():
+                    test_input, test_output, _, test_classes = test_dataset.get_dataset()
+                    logs.update(model.metrics(test_input, test_output, test_classes, test_writer, e, 'test_'))
+                if tune_search:
+                    tune.report(**logs)
+                params.update(logs)
 
             # Save model
             model_file_name = os.path.join(dest_dir, "models", basename + ".mdl")
+            with open(model_file_name[:-4]+'.json', "w") as f:
+                json.dump(params, f, indent=4)
             opt_file_name = model_file_name[:-4]+'.opt'
             torch.save(model.state_dict(), model_file_name)
             torch.save(opt.state_dict(), opt_file_name)
-            with open(model_file_name[:-4]+'.json', "w") as f:
-                json.dump(params, f, indent=4)
                 
 
             model.train()

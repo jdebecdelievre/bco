@@ -11,6 +11,7 @@ import numpy as np
 from scipy.optimize import golden
 import re 
 import argparse
+from ipdb import set_trace as st
 GREEN = '\033[92m'
 RED = '\033[91m'
 ENDCOL = '\033[0m'
@@ -166,7 +167,7 @@ def compute_Jloss(filename, content, plot_contours=True):
         plt.close()
 
     if content['model_type'] == 'sqJ_orth_cert':
-        x1, x2 = torch.meshgrid(torch.linspace(-2,2), torch.linspace(-2,2))
+        x1, x2 = torch.meshgrid(torch.linspace(-2,2, 100), torch.linspace(-2,2, 100))
         X = torch.stack((x1.flatten(), x2.flatten())).T
         with torch.no_grad():
             Y = model._net.certificate(X)
@@ -196,7 +197,7 @@ def loss_map(model, test_dataset, save, bounds=None):
     # Feasible points
     a.scatter(fs[:,0], fs[:,1], s=20., c='green', marker='+')
     if fs.shape[0] > 0:
-        cls = model.classify(fs)
+        cls = torch.atleast_1d(model.classify(fs))
         a.scatter(fs[:,0], fs[:,1], s=20., c=cls, marker='o')
     
     for i in range(ifs.size(0)):
@@ -231,10 +232,11 @@ def loss_map(model, test_dataset, save, bounds=None):
     f.savefig(save+'.pdf', bbox_inches='tight')
 
 def score_contours(model, test_dataset=None, single_level=None, save=None, 
-                bounds=None, grad_norm=False):
-    bounds = bounds if bounds is not None else [[-2,-2], [2,2]]
-    x1, x2 = torch.meshgrid(torch.linspace(bounds[0][0], bounds[1][0]),
-                            torch.linspace(bounds[0][1], bounds[1][1]))
+                bounds=None, grad_norm=False, N=100):
+    bounds = [[-2,-2], [2,2]]
+    # bounds = bounds if bounds is not None else [[-2,-2], [2,2]]
+    x1, x2 = torch.meshgrid(torch.linspace(bounds[0][0], bounds[1][0], N),
+                            torch.linspace(bounds[0][1], bounds[1][1], N))
     X = torch.stack((x1.flatten(), x2.flatten())).T
 
     if not grad_norm:

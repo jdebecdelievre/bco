@@ -20,10 +20,34 @@ def net(X, u0, u1, u2, abs_act=False):
     id2 = torch.sign(sc2) if abs_act else sc2.gt(0)*1.
     return (X @ u0[:-1]) + u0[-1] + (id1 * sc1).sum(1, keepdims=True) - (id2 * sc2).sum(1, keepdims=True)
 
-def random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=False):
+def unique(x, dim=None):
+    """Unique elements of x and indices of those unique elements
+    https://github.com/pytorch/pytorch/issues/36748#issuecomment-619514810
+
+    e.g.
+
+    unique(tensor([
+        [1, 2, 3],
+        [1, 2, 4],
+        [1, 2, 3],
+        [1, 2, 5]
+    ]), dim=0)
+    => (tensor([[1, 2, 3],
+                [1, 2, 4],
+                [1, 2, 5]]),
+        tensor([0, 1, 3]))
+    """
+    unique, inverse = torch.unique(
+        x, sorted=False, return_inverse=True, dim=dim)
+    perm = torch.arange(inverse.size(0), dtype=inverse.dtype,
+                        device=inverse.device)
+    inverse, perm = inverse.flip([0]), perm.flip([0])
+    return unique, inverse.new_empty(unique.size(dim)).scatter_(0, inverse, perm)
+
+def random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=False, device='cpu'):
     d = X_f.shape[1]
 
-    W = 2*torch.randn((M, d)) - 1
+    W = torch.randn((M, d), device=device)
     if fuse_xxstar:
         D_i = torch.sign((torch.tensor(X_i) @ W.T))
         D_s = D_i.clone()
@@ -35,7 +59,7 @@ def random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=False):
         D_f = torch.sign((torch.tensor(X_f) @ W.T))
 
         # separate pairs of infeasible points
-        W = torch.tensor(((X_i + X_s)[None, :, :] - (X_i + X_s)[:, None, :])/2).reshape((-1,d))
+        W = torch.tensor(((X_i + X_s)[None, :, :] - (X_i + X_s)[:, None, :])/2, device=device).reshape((-1,d))
         D_f_ = torch.sign((torch.tensor(X_f) @ W.T))
         D_i_ = torch.sign((torch.tensor(X_i) @ W.T))
         D_s_ = torch.sign((torch.tensor(X_s) @ W.T))
@@ -43,8 +67,9 @@ def random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=False):
         D_f = torch.cat((D_f, D_f_), axis=1)
         D_i = torch.cat((D_i, D_i_), axis=1)
         D_s = torch.cat((D_s, D_s_), axis=1)
-        _, idx = np.unique(torch.cat((D_f, D_i), 
-                                        axis=0).numpy(), axis=1, return_index=True)
+        _, idx = unique(torch.cat((D_f, D_i), dim=0), dim=1)
+        # _, idx_= np.unique(torch.cat((D_f, D_i), 
+        #                                 axis=0).numpy(), axis=1, return_index=True)
         
         # separate 
         
@@ -53,7 +78,9 @@ def random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=False):
         D_f = torch.sign((torch.tensor(X_f) @ W.T))
         D_i = torch.sign((torch.tensor(X_i) @ W.T))
         D_s = torch.sign((torch.tensor(X_s) @ W.T))
-        _, idx = np.unique(torch.cat((D_f, D_i, D_f), axis=0).numpy(), axis=1, return_index=True)
+        _, idx = unique(torch.cat((D_f, D_i, D_s), dim=0), dim=1)
+        # _, idx_= np.unique(torch.cat((D_f, D_i, D_s), axis=0).numpy(), axis=1, return_index=True)
+        
     D_f = D_f[:, idx]
     D_i = D_i[:, idx]
     D_s = D_s[:, idx]
@@ -88,7 +115,7 @@ def enumerate_signed_patterns(X_f, X_i, X_s, fuse_xxstar, tol=1e-8):
     mask = (s.value <= tol).squeeze()
     return D_f[:, mask], D_i[:, mask], D_s[:, mask]
 
-def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_act=False, sdf=True, norm=2):
+def train_network(X_f, X_i, X_s, Y_i, dY_i=None, beta=1e-6, M=int(5000), fuse_xxstar=False, abs_act=False, sdf=True, norm=2):
     n_f, d = X_f.shape
     n_i, d = X_i.shape
     X_f = np.append(X_f,np.ones((n_f,1)),axis=1)
@@ -101,7 +128,7 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
 
     ## Finite approximation of all possible sign patterns
     t0 = time.time()
-    if n_f + 2*n_i < 15:
+    if n_f + 2*n_i < 10:
         D_f, D_i, D_s = enumerate_signed_patterns(X_f, X_i, X_s, fuse_xxstar)
     else:
         D_f, D_i, D_s = random_signed_patterns(X_f, X_i, X_s, M, fuse_xxstar=fuse_xxstar)
@@ -132,8 +159,7 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
                         ux_f_1 >= 0,
                         ux_f_2 >= 0
                         ]
-
-        Y_f_lb = np.max(Y_i[:, None] - np.linalg.norm(X_f[None, :, :] - X_i[:, None, :], axis=-1, ord=norm), axis=0)
+        Y_f_lb = np.max(Y_i - np.linalg.norm(X_f[None, :, :] - X_i[:, None, :], axis=-1, ord=norm), axis=0, keepdims=True).T
 
         if sdf:
             loss_f = cp.sum(cp.abs(y_f - Y_f_lb))
@@ -172,13 +198,22 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
 
         loss_i = cp.sum(cp.abs(Y_i - y_i))
         loss_s = cp.sum(cp.abs(y_s))
-        loss = loss + loss_i + loss_s
+        if dY_i is not None:
+            loss_di = cp.sum(cp.abs(deriv_i[:,:-1] - dY_i))
+            loss_ds = cp.sum(cp.abs(deriv_s[:,:-1] - dY_i))
+        else:
+            loss_di = cp.Variable(value=0., nonneg=True)
+            loss_ds = cp.Variable(value=0., nonneg=True)
+
+        loss = loss + loss_i + loss_s + loss_ds + loss_di
         lipsh_i = cp.sum(cp.neg(Y_i - y_i))
     else:
         loss_i = cp.Variable(value=0.)
         loss_s = cp.Variable(value=0.)
         lipsh_i = cp.Variable(value=0.)
         lipsh_s = cp.Variable(value=0.)
+        loss_di = cp.Variable(value=0.)
+        loss_ds = cp.Variable(value=0.)
 
     # Regularization
     groupnorm_reg = cp.norm(Uopt0) + cp.mixed_norm(Uopt1.T,2,1) + cp.mixed_norm(Uopt2.T,2,1)
@@ -196,21 +231,24 @@ def train_network(X_f, X_i, X_s, Y_i, beta, M=int(5000), fuse_xxstar=False, abs_
     t0 = time.time()
     options = {}#dict(mosek_params = {'MSK_DPAR_BASIS_TOL_X':1e-8})
     prob.solve(verbose=True, **options)
-    # prob.solve(solver=cp.SCS)
+    # prob.solve(solver=cp.SCS, verbose=True)
 
     print(f'Status: {prob.status}, \n '
         f'Value: {prob.value :.2E}, \n '
         f'loss_f: {loss_f.value :.2E}, \n '
         f'loss_i: {loss_i.value :.2E}, \n '
         f'loss_s: {loss_s.value :.2E}, \n '
+        f'loss_di: {loss_di.value :.2E}, \n '
+        f'loss_ds: {loss_ds.value :.2E}, \n '
         f'Reg: {reg.value : .2E}, \n ' 
-        f'lipsh_f: {lipsh_f.value :.2E}, \n '
-        f'lipsh_i: {lipsh_i.value :.2E}, \n '
+        # # f'lipsh_f: {lipsh_f.value :.2E}, \n '
+        # # f'lipsh_i: {lipsh_i.value :.2E}, \n '
         f'Time: {time.time()-t0 :.2f}s')
     if prob.status.lower() == 'infeasible':
         st()
         return None
     u0, u1, u2 = torch.tensor(Uopt0.value), torch.tensor(Uopt1.value), torch.tensor(Uopt2.value)
+    torch.save({'u1':u1, 'u2':u2, 'u0':u0, 'D_f':torch.tensor(D_f), 'D_i':torch.tensor(D_i), 'D_s':torch.tensor(D_s)}, 'tmp.csv')   
     return u0, u1, u2
 
 def minimize(h, U, upper, lower, M=100):
@@ -402,8 +440,10 @@ def train_cvx(filename, input_variables, M=20000, abs_act=False, tol=1e-8, beta=
     return model
 
 if __name__ == "__main__":
-    data_file = 'data/twins/twins_10_n0.csv'
+    data_file = 'data/pacman/pacman_10_n3.csv'
     xcols = ['x1', 'x2']
+    # data_file = 'data/twins/twins_10_n4.csv'
+    # xcols = ['x1', 'x2']
     # data_file = 'data/disk/disk_10_n1.csv'
     # xcols = ['x1', 'x2']
     # data_file = 'data/multio_50/multio_2d_n4.csv'
@@ -417,8 +457,9 @@ if __name__ == "__main__":
     X_i = data_i[xcols].values / 2
     X_s = data_i[[x + '_star' for x in xcols]].values / 2
     Y_i = data_i[['sqJ']].values / 2
+    dY_i = data_i[['dsqJ_' + x for x in xcols]].values
     
-    abs_act = True
+    abs_act = False
     norm=2
 
     # torch.manual_seed(2)
@@ -427,11 +468,13 @@ if __name__ == "__main__":
     # X_f, X_i, X_s, Y_i = square_sdf(20, norm=norm)
     # plt.scatter(X_i[:,0], X_i[:,1], c=Y_i, s=1)
     # plt.show()
-    u0, u1, u2 = train_network(X_f, X_i, X_s, Y_i, abs_act=abs_act, 
+
+    u0, u1, u2 = train_network(X_f, X_i, X_s, Y_i, dY_i=dY_i, abs_act=abs_act, 
                         fuse_xxstar=False, beta=1e-4, M=int(1e6), sdf=True, norm=norm)
+                         
     # u1 = u1[:, u1.norm(dim=0)>1e-6]
     # u2 = u2[:, u2.norm(dim=0)>1e-6]
 
     f = plot_model(X_f, X_i, X_s, u0, u1, u2, hyperplanes=False,  abs_act=abs_act, show=False, norm=norm)
-    plt.show()
+    # plt.show()
     f.savefig('f2d_beta_abs_fuse_xxstar.pdf', bbox_inches='tight')

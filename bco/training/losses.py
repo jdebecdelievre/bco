@@ -73,7 +73,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
     if params['model_type'] == 'sqJ_classifier_w_derivative':
         
         loss_dict = {}
-        loss_dict['gradient norm'] = torch.zeros(1)
+        loss_dict['gradient norm'] = torch.zeros(1, device=fs.device)
         if _ifs.size(0) > 0:
             # Infeasible points (regression)
             _ifs.requires_grad = True
@@ -81,7 +81,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _do_ = grad(_o_.sum(), [_ifs], create_graph=True)[0]
 
             loss_dict['J loss'] = (_o - _o_).abs().mean()
-            loss_dict['dJ loss'] = (_o.T * ((_do - _do_).abs().mean(1, keepdim=True))).sum() / _ifs.shape[0]
+            loss_dict['dJ loss'] = (_o * ((_do - _do_).abs().mean(1, keepdim=True))).sum() / _ifs.shape[0]
             # djpred = (_ifs - _o_ * _do_ - _ifs_star).abs().mean()
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs, _o_, _do_, model)
             
@@ -91,7 +91,7 @@ def loss_calc(batch, anchors, model, params, coefs={}):
             _do_ = grad(_o_.sum(), [_ifs_star], create_graph=True)[0]
             
             loss_dict['J loss z*'] = _o_.abs().mean()
-            loss_dict['dJ loss z*'] = (_o.T * ((_do - _do_).abs().mean(1, keepdim=True))).sum() / _ifs.shape[0]
+            loss_dict['dJ loss z*'] = (_o * ((_do - _do_).abs().mean(1, keepdim=True))).sum() / _ifs.shape[0]
             # djpred = djpred + ((_do - _do_).abs().sum(1, keepdim=True)* _o).mean()
             loss_dict['gradient norm'] = loss_dict['gradient norm'] + grad_norm_reg(_ifs_star, _o_, _do_, model)
 
@@ -116,9 +116,9 @@ def loss_calc(batch, anchors, model, params, coefs={}):
                 loss_dict['sdf_regularizer'] = grad_norm_reg(_anchors, anchout, grd, model)
 
             # Monotonicity
-            boundary_reg = torch.zeros(1)
+            boundary_reg = torch.zeros(1, device=fs.device)
             if "monotonicity" in params:
-                mono_reg = torch.zeros(1)
+                mono_reg = torch.zeros(1, device=fs.device)
                 for i,m in enumerate(params["monotonicity"]):
                     if m is None:
                         continue
@@ -128,14 +128,13 @@ def loss_calc(batch, anchors, model, params, coefs={}):
 
             # Infeasible boundary
             if params['boundary_regularizer'] > 0:
-                boundary_reg = torch.zeros(1)
-                bound  = torch.tensor(params['bounds'])
+                boundary_reg = torch.zeros(1, device=fs.device)
+                bound  = torch.tensor(params['bounds'],  device=fs.device)
                 for b in range(2):
                     for j in range(_ifs.size(1)):
-                        boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j), bound[b][j]), reuse=True)).mean()
+                        boundary_reg = boundary_reg + F.relu(-model._net(anchors.index_fill(1, torch.tensor(j,  device=fs.device), bound[b][j]), reuse=True)).mean()
                 loss_dict['boundary_regularizer'] = boundary_reg
         loss = combine_losses(loss_dict, coefs)
-        # import ipdb; ipdb.set_trace()
         return loss, loss_dict
 
     elif params['model_type'] == 'sqJ_hinge_classifier':

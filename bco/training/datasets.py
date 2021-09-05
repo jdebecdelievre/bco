@@ -18,11 +18,10 @@ def process_data(filename, input_regex=None,
                 output_regex='^sqJ$', 
                 input_columns=None,
                 output_columns=None):
-                
-    try:
+    try:            
         data = pd.read_csv(filename)
     except FileNotFoundError:
-        data = pd.read_csv('../' + filename )
+        data = pd.read_csv('../'+filename)
 
     # Identify relevant columns
     names = list(data.columns)
@@ -53,11 +52,12 @@ def process_data(filename, input_regex=None,
 
 class BaseDataset():
 
-    def __init__(self, filename, params, output_regex):
+    def __init__(self, filename, params, output_regex, device=None):
         input_col = {k:params[k] for k in ['input_regex', 'input_columns'] if k in params}
         (fs, ifs, ifs_star, out, dout) = process_data(filename,
                     output_regex=output_regex,
                     **input_col)
+        self.device = device
         self.tensors = (fs, ifs, ifs_star, out, dout)
 
         # localize infeasible points (which are not xStar)
@@ -103,6 +103,23 @@ class BaseDataset():
             self.bound = torch.tensor(params['bounds'])
         self.n_anchors = params['sdf_regularization_anchors']
         self.fixed_anchors = params['fixed_regularization_anchors']
+        if 'random_anchor_walk' in params:
+            self.random_anchor_walk = params['random_anchor_walk']
+        else:
+            self.random_anchor_walk = None
+        if self.random_anchor_walk is not None:
+            self.random_anchor_walk = torch.tensor(self.random_anchor_walk)
+
+    def to(self, device):
+        self.tensors = [t.to(device) for t in self.tensors]
+        self.input_mean = self.input_mean.to(device)
+        self.output_mean = self.output_mean.to(device)
+        self.input_std = self.input_std.to(device)
+        self.output_std = self.output_std.to(device)
+        self.bound = self.bound.to(device)
+        if self.random_anchor_walk is not None:
+            self.random_anchor_walk = self.random_anchor_walk.to(device)
+        self.device = device
 
     def copy_stats(self, source):
         self.input_mean.data = source.input_mean.data
@@ -151,8 +168,12 @@ class BaseDataset():
     
     def get_anchors(self):
         if (self.anchors is None or self.fixed_anchors is False) and self.n_anchors > 0:
-            self.anchors = (self.anchor_engine.draw(self.n_anchors).double() * 
+            self.anchors = (self.anchor_engine.draw(self.n_anchors).double().to(self.device) * 
                             (self.bound[1:] - self.bound[:1]) + self.bound[:1])
+        if hasattr(self,"random_anchor_walk") and self.random_anchor_walk is not None:
+            self.anchors.add_(torch.randn_like(self.anchors)*self.random_anchor_walk)
+            self.anchors.add_((self.anchors < self.bound[:1]) * (self.anchors - (self.bound[:1] - self.bound[-1:])))
+            self.anchors.add_((self.anchors > self.bound[-1:]) * (self.anchors + (self.bound[:1] - self.bound[-1:])))
         return self.anchors
         
     def get_sqJ(self, output):

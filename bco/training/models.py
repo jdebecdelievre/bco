@@ -242,7 +242,7 @@ def build_layers(model_params, output_size):
     return model
 
 def scalarize(val):
-    return np.atleast_1d(val.squeeze().detach().data.numpy())[0]
+    return np.atleast_1d(val.squeeze().detach().data.to('cpu').numpy())[0]
 
 class sqJModel(nn.Module):
     def __init__(self, model_params):
@@ -256,6 +256,12 @@ class sqJModel(nn.Module):
 
         self.MaxGradNorm = -1.
         self.MinGradNorm = 1e10
+        self.heaviside_value = torch.tensor([1.])
+
+    def to(self, device):
+        self.device = device
+        super().to(device)
+        self.heaviside_value = self.heaviside_value.to(device)
 
     def normalize(self, input=None, output=None, deriv=None):
         assert sum([int(i is not None) for i in [input, output, deriv]]) == 1, "Only one tensor can be normalized by the method"
@@ -312,7 +318,7 @@ class sqJModel(nn.Module):
         torch.tensor
             classes
         """
-        return np.heaviside(-_output + tol, 1.)
+        return torch.heaviside(-_output + tol, self.heaviside_value)
 
     def classify(self, input, tol=0.):
         """Classifies *unnormalized* inputs
